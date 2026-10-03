@@ -54,7 +54,7 @@ impl Shell {
     pub fn launcher(&self) -> crate::shell::Launcher {
         let socket = match &self.socket {
             Some(p) => p.clone(),
-            None => shell_core::config::extra_socket(&shell_core::config::default_runtime_dir(), "render"),
+            None => crate::shell::default_socket(),
         };
         crate::shell::Launcher { socket, id: (!self.launcher.is_empty()).then(|| self.launcher.clone()) }
     }

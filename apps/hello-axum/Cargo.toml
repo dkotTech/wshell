@@ -3,6 +3,7 @@ name = "hello-axum"
 version = "0.1.0"
 edition = "2024"
 publish = false
+license = "MIT"
 
 [dependencies]
 # actix-web does not build for WASI (actix-rt requires tokio::signal, actix-server requires socket2);

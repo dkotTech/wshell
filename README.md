@@ -357,3 +357,18 @@ UI HTTP server with a subdomain per app, bridge and `shell.js`, a single resourc
 
 Remaining in the MVP scope: `system.services` (systemd over D-Bus) and `system.network`
 (NetworkManager) permissions, "network" and "systemd services" examples, seccomp/namespaces for the worker.
+
+## License
+
+Copyright (c) 2026 dkotTech.
+
+- **Shell** (`crates/`, `dashboard/`, `scripts/`): [Elastic License 2.0](LICENSE) (ELv2).
+  Free to use, modify and distribute, including commercially and on devices you sell; it may not
+  be provided to third parties as a hosted or managed service. Official text:
+  https://www.elastic.co/licensing/elastic-license
+- **What apps are built with** (`wit/`), **example apps** (`apps/`), **plugins** (`plugins/`) and
+  the **Renderer** (`render/`): MIT, see the `LICENSE` file in each directory. Apps and plugins
+  written against `wit/` are not bound by ELv2. The Renderer uses only wshell's control protocol
+  (JSON lines on a socket), no wshell code.
+- Third-party components keep their own licenses (Wasmtime: Apache-2.0 WITH LLVM-exception;
+  Servo: MPL-2.0; WPE WebKit: LGPL and BSD, linked dynamically).

@@ -5130,7 +5130,6 @@ dependencies = [
  "serde",
  "serde_json",
  "servo",
- "shell-core",
  "tokio",
  "tokio-tungstenite",
  "toml 0.9.12+spec-1.1.0",

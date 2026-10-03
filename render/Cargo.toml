@@ -2,6 +2,7 @@
 name    = "render-rs"
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
 
 [features]
 default = ["webkit"]
@@ -27,7 +28,6 @@ base64            = "0.22"
 crossterm         = { version = "0.29", features = ["event-stream"] }
 rustix            = { version = "1", features = ["event"] }
 tokio-tungstenite = "0.29"
-shell-core   = { workspace = true }
 
 # webkit engine
 glib = { version = "0.18", optional = true }
