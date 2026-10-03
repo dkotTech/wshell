@@ -1,0 +1,73 @@
+/* Sized for small monochrome screens (256x144, grayscale): high contrast,
+   the selected item is inverted. Scales up for a normal browser as well. */
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: #000;
+  color: #fff;
+  font: 13px/1.25 sans-serif;
+}
+
+header {
+  display: flex;
+  justify-content: space-between;
+  padding: 2px 6px;
+  border-bottom: 1px solid #fff;
+  font-weight: bold;
+}
+
+#status {
+  font-weight: normal;
+  opacity: 0.7;
+}
+
+main {
+  height: calc(100% - 20px);
+  overflow-y: auto;
+}
+
+#apps {
+  display: flex;
+  flex-direction: column;
+}
+
+.app {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  width: 100%;
+  padding: 3px 6px;
+  border: 0;
+  background: #000;
+  color: #fff;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.app:focus {
+  outline: none;
+  background: #fff;
+  color: #000;
+}
+
+.name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.state {
+  flex: none;
+  opacity: 0.6;
+}
+
+#empty {
+  margin: 8px 6px;
+  opacity: 0.7;
+}

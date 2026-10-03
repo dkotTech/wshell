@@ -1,0 +1,19 @@
+{
+  "name": "wshell-dashboard",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@preact/signals": "^2.8.1",
+    "preact": "^10.26"
+  },
+  "devDependencies": {
+    "@preact/preset-vite": "^2.10",
+    "typescript": "^5.7",
+    "vite": "^6.2"
+  }
+}

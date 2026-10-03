@@ -1,0 +1,14 @@
+# Shell plugins. Built for wasm32-wasip2: scripts/build-apps.sh
+[workspace]
+resolver = "3"
+members = ["launcher"]
+
+[workspace.dependencies]
+wit-bindgen = "0.62"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+opt-level = "s"
+lto = true
+strip = true

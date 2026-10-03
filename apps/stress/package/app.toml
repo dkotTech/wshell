@@ -1,0 +1,11 @@
+[app]
+id = "org.wshell.stress"
+version = "0.1.0"
+name = "Stress test"
+shell_api = "0.1"
+
+[backend]
+world = "shell:app/app@0.1.0"
+
+[lifecycle]
+priority = "low"       # stopped first under memory pressure

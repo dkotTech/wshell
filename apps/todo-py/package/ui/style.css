@@ -1,0 +1,18 @@
+:root { color-scheme: light dark; --accent: #2f6fde; }
+body { font: 15px/1.4 system-ui, sans-serif; margin: 0 auto; max-width: 620px; padding: 16px; }
+header { display: flex; align-items: center; gap: 12px; }
+h1 { font-size: 20px; margin: 0; }
+.hint { color: #888; font-size: 13px; flex: 1; }
+.badge { font-size: 12px; padding: 2px 8px; border-radius: 10px; background: #8883; }
+.badge.ok { background: #2a2; color: #fff; }
+form { display: flex; gap: 8px; margin: 16px 0; }
+input[type=text], #text { flex: 1; font: inherit; padding: 6px 8px; }
+button { font: inherit; padding: 6px 14px; border: 0; border-radius: 6px; background: var(--accent); color: #fff; cursor: pointer; }
+button.link { background: none; color: #888; padding: 2px 6px; }
+button.link:hover { color: #d33; }
+ul { list-style: none; padding: 0; margin: 0; }
+li { display: flex; align-items: center; gap: 10px; padding: 8px 4px; border-bottom: 1px solid #8883; }
+li span { flex: 1; overflow-wrap: anywhere; cursor: text; }
+li.done span { text-decoration: line-through; color: #888; }
+footer { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; color: #888; font-size: 13px; }
+.error { color: #d33; }

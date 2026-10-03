@@ -1,0 +1,15 @@
+[package]
+name = "fetch"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wit-bindgen.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+# Standard wasi:http client (net.http permission).
+wstd = "0.6"

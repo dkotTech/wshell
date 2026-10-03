@@ -1,0 +1,41 @@
+[package]
+name    = "render-rs"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+default = ["webkit"]
+# Engines are mutually exclusive — pick one at build time:
+#   cargo build                                        → WPE WebKit (C FFI, ~5 MB)
+#   cargo build --no-default-features --features servo → Servo (pure Rust, ~80 MB)
+webkit = ["dep:glib"]
+servo  = ["dep:servo", "dep:url", "dep:dpi"]
+
+[dependencies]
+async-stream = "0.3"
+axum         = { version = "0.8", features = ["ws"] }
+bytes        = "1"
+clap         = { version = "4", features = ["derive", "env"] }
+futures-util = { version = "0.3", default-features = false }
+image        = { version = "0.25", default-features = false, features = ["png"] }
+serde        = { version = "1", features = ["derive"] }
+serde_json   = "1"
+tokio        = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync", "io-util"] }
+toml         = "0.9"
+# tui: kitty graphics + keyboard protocols in the terminal
+base64            = "0.22"
+crossterm         = { version = "0.29", features = ["event-stream"] }
+rustix            = { version = "1", features = ["event"] }
+tokio-tungstenite = "0.29"
+shell-core   = { workspace = true }
+
+# webkit engine
+glib = { version = "0.18", optional = true }
+
+# servo engine
+servo = { version = "0.6", optional = true }
+url   = { version = "2", optional = true }
+dpi   = { version = "0.1", optional = true }
+
+[build-dependencies]
+pkg-config = "0.3"

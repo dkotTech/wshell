@@ -1,0 +1,10 @@
+.idea/
+/target
+/apps/target
+/apps/*/package/backend.wasm
+/plugins/target
+/plugins/*/package/backend.wasm
+/dashboard/node_modules
+/dashboard/dist
+__pycache__/
+/.local

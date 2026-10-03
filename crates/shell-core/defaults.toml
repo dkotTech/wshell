@@ -1,0 +1,67 @@
+# Build defaults. Overridden by /etc/wshell/shell.toml and `shelld --config`.
+
+[shell]
+# data_dir = "/var/lib/wshell"     # default: /var/lib/wshell for root, otherwise ~/.local/share/wshell
+# runtime_dir = "/run/wshell"      # default: /run/wshell for root, otherwise $XDG_RUNTIME_DIR/wshell
+log_level = "info"
+isolation = "process"
+compile_threads = 4               # AOT compilation of components (a separate process at nice 19); 0 = all cores
+
+[features]
+ui_server = true                  # UI HTTP server and bridge
+plugins = true                    # plugins: apps with access to Shell itself (shell.* permissions)
+
+[http]
+port = 8470                       # 127.0.0.1 / ::1 only
+max_message_kb = 256              # bridge request/response limit
+
+[dashboard]
+enabled = true                    # app dashboard
+port = 8471                       # 127.0.0.1 / ::1 only
+max_upload_mb = 64
+
+[metrics]
+enabled = false                   # /metrics: Shell's own metrics and the apps' snapshots
+listen = "127.0.0.1:9470"         # for a Prometheus or an agent on the device
+token = ""                        # Authorization: Bearer; required if listen is not loopback
+max_series_per_app = 200          # series kept from an app's snapshot, the rest is dropped
+max_snapshot_kb = 256
+
+[profile]
+name = "balanced"
+cpu_max_percent = 50
+memory_mb = 64                    # WASM linear memory
+runtime_overhead_mb = 32          # + worker runtime in cgroup memory.max
+pids_max = 16
+fuel_per_call = 2_000_000_000
+hook_timeout_ms = 500
+call_timeout_ms = 30_000
+bridge_events_per_s = 30
+
+[exec]
+allowed_privileges = []
+max_concurrent = 4
+max_output_kb = 1024
+
+[cgroups]
+mode = "auto"                     # auto | off | required
+
+[lifecycle]
+start_on_demand = true            # start a stopped app when its UI is opened or on a call
+idle_stop_after_s = 0             # stop when idle; 0 disables it
+honor_keep = true                 # respect idle = "keep" from the manifest
+stop_grace_ms = 5000              # wait for a busy app after stop-requested
+max_busy_s = 300                  # busy state longer than this is not counted
+memory_high_mb = 0                # memory budget of all apps; 0 disables eviction
+
+# Extra control sockets with a narrowed set of requests, e.g. for the Renderer:
+# [control.sockets.render]          # → <runtime_dir>/render.sock
+# mode = 0o660                      # the Renderer runs as another user in Shell's group
+# allow = ["url:org.wshell.launcher"]   # one-time links to the launcher plugin, nothing else
+
+# [policy.app."com.example.weather"]
+# autostart = true
+# memory_mb = 32
+# priority = "high"               # low | normal | high, on top of the manifest
+# idle = "keep"                   # stop | keep, on top of the manifest
+# on_demand = false               # do not start when the UI is opened or on a call

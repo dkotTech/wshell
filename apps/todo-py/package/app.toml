@@ -1,0 +1,24 @@
+[app]
+id = "org.wshell.todo-py"
+version = "0.1.0"
+name = "Todo (Python)"
+shell_api = "0.1"
+
+[backend]
+component = "backend.wasm"
+world = "shell:app/app@0.1.0"
+
+[ui]
+entry = "ui/index.html"
+
+[[permissions]]
+id = "storage.private"
+quota_mb = 1
+reason = "Storing the todo list"
+
+[resources]
+memory_mb = 64         # CPython inside the component
+
+[lifecycle]
+idle = "stop"          # state is in storage: the app may be stopped at any time
+priority = "normal"

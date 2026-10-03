@@ -1,0 +1,14 @@
+[app]
+id = "org.wshell.fetch"
+version = "0.1.0"
+name = "Fetch"
+shell_api = "0.1"
+
+[backend]
+world = "shell:app/app@0.1.0"
+
+[[permissions]]
+id = "net.http"
+hosts = ["example.com", "*.example.com"]
+methods = ["GET"]
+reason = "Example of outgoing HTTP requests"

@@ -1,0 +1,39 @@
+[workspace]
+resolver = "3"
+members = ["crates/shell-core", "crates/shelld", "crates/shellctl", "render"]
+# `render` (Servo) is heavy: built only on request, `cargo build -p render-rs`.
+default-members = ["crates/shell-core", "crates/shelld", "crates/shellctl"]
+exclude = ["apps", "plugins"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+
+[workspace.dependencies]
+shell-core = { path = "crates/shell-core" }
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.9"
+postcard = { version = "1", features = ["use-std"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "process", "sync", "time", "signal", "fs"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+clap = { version = "4", features = ["derive"] }
+
+[profile.release]
+opt-level = "s"
+lto = "thin"
+strip = true
+
+# Dependencies are optimized in debug builds too: unoptimized Cranelift compiles
+# a large component (CPython) ~10x slower, and SHA-256 of packages is slow as well.
+[profile.dev.package."*"]
+opt-level = 2
+
+# crossterm 0.29 parses SGR mouse reports as `coordinate - 1`; in SGR-Pixels mode
+# (render-rs tui) kitty reports 0 when the pointer leaves the window, which overflows.
+# Wrapped around (as in release) it lands outside the image and is dropped.
+[profile.dev.package.crossterm]
+overflow-checks = false

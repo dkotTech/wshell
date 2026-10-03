@@ -1,0 +1,31 @@
+# render-rs configuration: `render-rs --config render.toml`.
+# Every field is optional; the values below are the defaults.
+
+[api]
+listen = "127.0.0.1:8090"   # control API; it drives apps on behalf of the user, keep it on loopback
+token = ""                  # empty: a random token per start, printed to stderr (or --token / RENDER_TOKEN)
+
+[shell]                     # the home screen: wshell's launcher plugin
+launcher = "org.wshell.launcher"   # its app id; "" = no home screen (only --url renders)
+# socket = "/run/user/1000/wshell/render.sock"   # shelld's [control.sockets.render]; default: $XDG_RUNTIME_DIR/wshell/render.sock
+
+[screen]                    # default size of a render: the device screen
+width = 256
+height = 144
+fps = 30
+
+# Keys are KeyboardEvent.key names, whatever the source (API, WebSocket; later the
+# terminal and device buttons): "ArrowUp", "Enter", "Escape", "GoBack", "AppSwitch", "F1", …
+
+[keys.map]                  # renames, applied first
+GoBack = "Escape"           # Back button → what web pages expect
+# Soft1 = "F1"              # soft keys, once their names are settled
+# Soft2 = "F2"
+# Soft3 = "F3"
+
+[keys.actions]              # keys the Renderer handles itself; the page never sees them
+AppSwitch = "launcher"      # back to the launcher
+
+# render-rs tui: a render in a terminal (kitty graphics protocol), sized to the window
+[tui.keys]                  # terminal key → key name sent to the render (then [keys] applies)
+F12 = "AppSwitch"           # the terminal has no App switcher key

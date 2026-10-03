@@ -1,0 +1,23 @@
+[app]
+id = "org.wshell.launcher"
+version = "0.1.0"
+name = "Launcher"
+shell_api = "0.1"
+
+[backend]
+kind = "plugin"                      # access to Shell itself: shell.* permissions
+world = "shell:app/plugin@0.1.0"
+
+[ui]
+entry = "ui/index.html"
+
+[[permissions]]
+id = "shell.apps"
+reason = "The list of apps to open and one-time links to their UI"
+
+[resources]
+memory_mb = 8
+
+[lifecycle]
+idle = "keep"          # the home screen: shown on every App switch
+priority = "high"

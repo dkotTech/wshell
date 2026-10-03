@@ -1,0 +1,14 @@
+[app]
+id = "org.wshell.hello-axum"
+version = "0.1.0"
+name = "Hello axum"
+shell_api = "0.1"
+
+[backend]
+kind = "command"                     # ordinary program with main (wasi:cli/command)
+world = "wasi:cli/command"
+
+[[permissions]]
+id = "net.listen"
+ports = [8481]
+reason = "HTTP server on axum"

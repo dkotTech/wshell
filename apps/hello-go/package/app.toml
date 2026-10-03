@@ -1,0 +1,14 @@
+[app]
+id = "org.wshell.hello-go"
+version = "0.1.0"
+name = "Hello Go"
+shell_api = "0.1"
+
+[backend]
+kind = "command"                     # TinyGo -target=wasip2, ordinary main
+world = "wasi:cli/command"
+
+[[permissions]]
+id = "net.listen"
+ports = [8482]
+reason = "HTTP server in Go (net/http)"

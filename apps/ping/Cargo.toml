@@ -1,0 +1,15 @@
+[package]
+name = "ping"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wit-bindgen.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+# The standard Prometheus client: the app keeps its metrics, Shell gets the rendered snapshot.
+prometheus-client = "0.25"

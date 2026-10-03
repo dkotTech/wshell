@@ -1,0 +1,13 @@
+[package]
+name = "hello-axum"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+# actix-web does not build for WASI (actix-rt requires tokio::signal, actix-server requires socket2);
+# axum works on top of tokio with WASI networking (--cfg tokio_unstable, see apps/.cargo/config.toml).
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "json", "query"] }
+tokio = { version = "1", features = ["rt", "macros", "net"] }
+serde.workspace = true
+serde_json.workspace = true

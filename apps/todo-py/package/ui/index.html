@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Todo</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="/_shell/shell.js"></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <header>
+    <h1>Todo</h1>
+    <span class="hint">Python backend</span>
+    <span id="conn" class="badge">disconnected</span>
+  </header>
+  <form id="form">
+    <input id="text" placeholder="What needs to be done?" autocomplete="off" maxlength="500" required>
+    <button type="submit">add</button>
+  </form>
+  <p id="error" class="error" hidden></p>
+  <ul id="list"></ul>
+  <footer>
+    <span id="left"></span>
+    <button id="clear" type="button" class="link">clear completed</button>
+  </footer>
+</body>
+</html>

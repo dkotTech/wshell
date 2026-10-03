@@ -1,0 +1,40 @@
+[app]
+id = "org.wshell.ping"
+version = "0.1.0"
+name = "Ping"
+shell_api = "0.1"
+
+[backend]
+component = "backend.wasm"
+world = "shell:app/app@0.1.0"
+
+[ui]
+entry = "ui/index.html"
+
+[[permissions]]
+id = "exec"
+binary = "/usr/bin/ping"
+args = ["-c", "{count:int:1..20}", "-W", "2", "--", "{host:host}"]
+timeout_s = 60
+reason = "Checking host reachability"
+
+[[permissions]]
+id = "exec"
+binary = "/usr/bin/tracepath"
+args = ["-m", "20", "--", "{host:host}"]
+timeout_s = 90
+reason = "Tracing the route to a host"
+optional = true
+
+[[permissions]]
+id = "storage.private"
+quota_mb = 1
+reason = "History of checked hosts"
+optional = true
+
+[resources]
+memory_mb = 16
+
+[lifecycle]
+idle = "stop"          # may be stopped with no open UI and no running utilities
+priority = "normal"

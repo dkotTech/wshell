@@ -1,0 +1,48 @@
+[package]
+name = "shelld"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+default = ["ui-server", "dashboard", "metrics"]
+# UI HTTP server and bridge; disabled on headless devices.
+ui-server = ["dep:axum", "dep:mime_guess"]
+# `/metrics` for a Prometheus on the device.
+metrics = ["dep:axum"]
+# App dashboard on a separate port.
+dashboard = ["dep:axum", "dep:futures-util", "dep:rust-embed", "dep:mime_guess"]
+
+[dependencies]
+shell-core.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+postcard.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+clap.workspace = true
+wasmtime = { version = "49", default-features = false, features = ["runtime", "cranelift", "component-model", "std", "cache", "parallel-compilation", "anyhow"] }
+wasmtime-wasi = { version = "49", default-features = false, features = ["p2"] }
+# Standard wasi:http for apps. Without default-send-request: the worker has no HTTP client
+# of its own; requests go through the hook to the supervisor (net.http permission).
+wasmtime-wasi-http = { version = "49", default-features = false, features = ["p2"] }
+http = "1"
+http-body-util = "0.1"
+bytes = "1"
+axum = { version = "0.8", optional = true, features = ["ws"] }
+mime_guess = { version = "2", optional = true }
+futures-util = { version = "0.3", optional = true, default-features = false }
+# The built dashboard (dashboard/dist) is embedded in the binary, including in debug.
+rust-embed = { version = "8", optional = true, features = ["debug-embed"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+rand = "0.9"
+tar = "0.4"
+# Safe wrappers over Linux system calls (prctl, kill, inotify), without unsafe.
+rustix = { version = "1", features = ["fs", "process", "thread", "param"] }
+sha2 = "0.10"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }

@@ -1,0 +1,12 @@
+// The app's own world: only what it uses from shell:app. componentize-py keeps
+// every import of the target world, and each import is checked against the manifest.
+package example:todo;
+
+world todo {
+    import shell:app/log@0.1.0;
+    import shell:app/events@0.1.0;
+    import shell:app/storage@0.1.0;
+
+    export shell:app/lifecycle@0.1.0;
+    export shell:app/bridge@0.1.0;
+}

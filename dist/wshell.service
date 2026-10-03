@@ -1,0 +1,16 @@
+[Unit]
+Description=wshell: a shell for running WASM applications
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/shelld
+# Delegated cgroup: shelld creates supervisor/ and apps/<id>/ with limits in it.
+Delegate=cpu memory pids
+KillMode=mixed
+Restart=on-failure
+# TODO(after MVP): a separate user and a helper for exec privileges.
+DynamicUser=no
+
+[Install]
+WantedBy=multi-user.target

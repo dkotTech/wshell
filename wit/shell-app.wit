@@ -1,0 +1,183 @@
+/// Shell app world.
+///
+/// Shell permissions are granted as handle resources: the `open` function of the
+/// corresponding interface returns `none` if the permission is not granted. Importing an
+/// interface that requires a permission without declaring it in the manifest fails installation.
+package shell:app@0.1.0;
+
+/// App log. Requires no permission.
+interface log {
+    enum level { trace, debug, info, warn, error }
+
+    log: func(level: level, message: string);
+}
+
+/// Events from the backend to the UI (WebSocket `/_shell/events`). Requires no permission.
+interface events {
+    /// `payload` is JSON. Events are not delivered to a hidden UI.
+    emit: func(name: string, payload: string);
+}
+
+/// App activity: hints to Shell on whether the app may be stopped right now.
+/// Requires no permission. The decision is always Shell's: being busy postpones a stop
+/// (when idle, under memory pressure, on command) but does not cancel it.
+interface activity {
+    /// While the handle is alive, the app is busy: an operation is in progress that is unsafe to interrupt.
+    /// Handles are independent: nested operations do not reset each other.
+    resource busy {
+        constructor(reason: string);
+    }
+
+    /// Ask Shell to stop the app gracefully (calling `on-stop`).
+    request-stop: func();
+}
+
+/// App metrics for the device's Prometheus. Requires no permission. The app keeps its
+/// metrics however it likes and publishes the whole current snapshot in the Prometheus
+/// text format (any client library renders it); Shell validates it, adds the `app` label
+/// and serves it on `/metrics` until the next snapshot (also while the app is stopped).
+interface metrics {
+    /// Replaces the previous snapshot. An error: the snapshot was rejected (syntax, names,
+    /// size; the previous one stays) or stored without the series over the limit.
+    publish: func(snapshot: string) -> result<_, string>;
+}
+
+/// The `storage.private` permission: the app's private KV storage.
+interface storage {
+    resource store {
+        get: func(key: string) -> result<option<list<u8>>, string>;
+        set: func(key: string, value: list<u8>) -> result<_, string>;
+        delete: func(key: string) -> result<_, string>;
+        keys: func() -> result<list<string>, string>;
+    }
+
+    open: func() -> option<store>;
+}
+
+/// The `exec` permission: Shell runs a system utility using an argument template.
+interface exec {
+    type job-id = u64;
+
+    record output {
+        /// `none` if the process was terminated by a signal.
+        exit-code: option<s32>,
+        stdout: list<u8>,
+        stderr: list<u8>,
+        timed-out: bool,
+    }
+
+    resource command {
+        /// Run and wait for completion. `args` are the template's placeholder values.
+        run: func(args: list<tuple<string, string>>) -> result<output, string>;
+        /// Background run: output and completion arrive in `lifecycle.on-event`.
+        spawn: func(args: list<tuple<string, string>>) -> result<job-id, string>;
+    }
+
+    /// `name` is the `exec` permission name from the manifest.
+    open: func(name: string) -> option<command>;
+    cancel: func(job: job-id);
+}
+
+/// The `shell.apps` permission, plugins only (`kind = "plugin"`): the apps installed in
+/// Shell and their UI. Lets a plugin build a launcher, a switcher, a status screen.
+interface apps {
+    enum state { stopped, starting, running, suspended, stopping, failed }
+
+    record app-info {
+        id: string,
+        name: string,
+        version: string,
+        state: state,
+        /// The app has a Shell UI (`[ui]`): `ui-link` works for it.
+        has-ui: bool,
+        /// A plugin, not an app.
+        plugin: bool,
+    }
+
+    resource registry {
+        /// Installed apps and plugins.
+        %list: func() -> list<app-info>;
+        /// A one-time link to the app's UI, like `shellctl url`: the plugin's UI navigates
+        /// there and becomes that app (the link is for this browser only, once, minutes).
+        ui-link: func(id: string) -> result<string, string>;
+    }
+
+    open: func() -> option<registry>;
+}
+
+/// Export: handler for bridge requests from the UI (`shell.call`).
+interface bridge {
+    /// `payload` and the response are JSON.
+    handle: func(method: string, payload: string) -> result<string, string>;
+}
+
+/// Export: lifecycle hooks and host events.
+interface lifecycle {
+    enum stream-kind { stdout, stderr }
+
+    record exec-output {
+        job: u64,
+        %stream: stream-kind,
+        data: list<u8>,
+    }
+
+    record exec-exit {
+        job: u64,
+        exit-code: option<s32>,
+        timed-out: bool,
+    }
+
+    enum stop-reason {
+        /// The app has been idle longer than the policy allows.
+        idle,
+        /// Memory pressure: the app was chosen by priority.
+        memory-pressure,
+        /// Stopped by the user or administrator.
+        user,
+        /// The app asked to be stopped itself.
+        self-requested,
+        /// Shell shutdown.
+        shutdown,
+    }
+
+    /// Shell is about to stop the app while it is busy (analogous to SIGTERM).
+    /// Finish your work and release `activity.busy` within `grace-ms`; otherwise
+    /// `on-stop` will be called and the process stopped forcibly.
+    record stop-request {
+        reason: stop-reason,
+        grace-ms: u32,
+    }
+
+    variant host-event {
+        exec-output(exec-output),
+        exec-exit(exec-exit),
+        /// UI visibility changed.
+        ui-visible(bool),
+        stop-requested(stop-request),
+    }
+
+    on-start: func() -> result<_, string>;
+    on-stop: func();
+    on-event: func(event: host-event);
+}
+
+world app {
+    import log;
+    import events;
+    import activity;
+    import metrics;
+    import storage;
+    import exec;
+    // The `net.http` permission is standard `wasi:http/outgoing-handler`: the component imports
+    // it itself (e.g. via wstd); Shell checks the hosts and performs the request.
+
+    export lifecycle;
+    export bridge;
+}
+
+/// Shell plugin: an app with access to Shell itself through permissions only plugins
+/// may declare. Runs in the same sandbox, every call is checked by the supervisor.
+world plugin {
+    include app;
+    import apps;
+}
