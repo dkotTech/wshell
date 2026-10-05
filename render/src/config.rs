@@ -15,6 +15,7 @@ pub struct Config {
     pub screen: Screen,
     pub keys: Keys,
     pub tui: Tui,
+    pub web: Web,
 }
 
 /// Control API: renders, frames, input.
@@ -110,6 +111,21 @@ impl Default for Tui {
     }
 }
 
+/// The browser viewer (`/view/{id}`).
+#[derive(Debug, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Web {
+    /// Browser key → key name sent to the render (then `[keys]` applies),
+    /// like `[tui.keys]`: a PC keyboard has no App switcher or soft keys.
+    pub keys: BTreeMap<String, String>,
+}
+
+impl Default for Web {
+    fn default() -> Self {
+        Web { keys: BTreeMap::from([("F12".into(), "AppSwitch".into())]) }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Action {
@@ -138,5 +154,6 @@ mod tests {
         assert_eq!(example.keys.map, default.keys.map);
         assert!(matches!(example.keys.actions.get("AppSwitch"), Some(Action::Launcher)));
         assert_eq!(example.tui.keys, default.tui.keys);
+        assert_eq!(example.web.keys, default.web.keys);
     }
 }

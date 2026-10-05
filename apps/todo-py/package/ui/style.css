@@ -1,3 +1,5 @@
+/* Cozette (MIT, fonts/cozette-LICENSE.txt): a bitmap font, pixel-exact at 13px only. */
+@font-face { font-family: Cozette; src: url(fonts/cozette.woff) format("woff"); }
 :root { color-scheme: light dark; --accent: #2f6fde; }
 body { font: 15px/1.4 system-ui, sans-serif; margin: 0 auto; max-width: 620px; padding: 16px; }
 header { display: flex; align-items: center; gap: 12px; }
@@ -13,6 +15,39 @@ button.link:hover { color: #d33; }
 ul { list-style: none; padding: 0; margin: 0; }
 li { display: flex; align-items: center; gap: 10px; padding: 8px 4px; border-bottom: 1px solid #8883; }
 li span { flex: 1; overflow-wrap: anywhere; cursor: text; }
+li .edit { flex: 1; font: inherit; padding: 2px 4px; }
 li.done span { text-decoration: line-through; color: #888; }
+li:focus { outline: 2px solid var(--accent); outline-offset: -2px; }
 footer { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; color: #888; font-size: 13px; }
 .error { color: #d33; }
+
+/* Device screens (256x144, grayscale, keys only): no header, one line per todo, the list
+   takes every spare line, black and white with the focused row inverted. */
+@media (max-width: 480px), (max-height: 320px) {
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    display: flex; flex-direction: column; max-width: none; padding: 2px;
+    background: #000; color: #fff; font: 13px/13px Cozette, monospace;
+  }
+  header { display: contents; }
+  h1, .hint, #conn.ok { display: none; }
+  #conn { position: fixed; top: 0; right: 0; padding: 0 3px; border-radius: 0; background: #fff; color: #000; font-size: inherit; }
+  form { flex: none; gap: 2px; margin: 0 0 2px; }
+  input, button { font: inherit; }
+  #text, li .edit { min-width: 0; padding: 1px 3px; border: 1px solid #fff; border-radius: 0; background: #000; color: #fff; }
+  form button { padding: 1px 6px; border: 1px solid #fff; border-radius: 0; background: #000; }
+  #list { flex: 1; min-height: 0; overflow-y: auto; scroll-snap-type: y mandatory; }
+  li { scroll-snap-align: start; }
+  li { gap: 3px; padding: 1px 2px; border-bottom: 1px solid #444; }
+  li input[type=checkbox] { margin: 0; width: 9px; height: 9px; flex: none; }
+  li span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  li.done span { color: #888; }
+  li:focus { outline: none; background: #fff; color: #000; }
+  li:focus span { color: inherit; }
+  button.link { padding: 0 3px; color: inherit; border-radius: 0; }
+  footer { flex: none; margin: 1px 0 0; padding: 0 2px; color: #aaa; font-size: inherit; }
+  footer button.link { color: #aaa; }
+  #text:focus, button:focus { outline: none; background: #fff; color: #000; }
+  .error { margin: 0 0 2px; color: #fff; text-decoration: underline; }
+}

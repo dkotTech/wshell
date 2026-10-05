@@ -29,3 +29,7 @@ AppSwitch = "launcher"      # back to the launcher
 # render-rs tui: a render in a terminal (kitty graphics protocol), sized to the window
 [tui.keys]                  # terminal key → key name sent to the render (then [keys] applies)
 F12 = "AppSwitch"           # the terminal has no App switcher key
+
+# the browser viewer (/view/{id}); its "⌂ apps" button does the same as AppSwitch
+[web.keys]                  # browser key → key name sent to the render (then [keys] applies)
+F12 = "AppSwitch"

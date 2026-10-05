@@ -1,3 +1,5 @@
+/* Cozette (MIT, fonts/cozette-LICENSE.txt): a bitmap font, pixel-exact at 13px only. */
+@font-face { font-family: Cozette; src: url(fonts/cozette.woff) format("woff"); }
 :root { color-scheme: light dark; --accent: #2f6fde; }
 body { font: 15px/1.4 system-ui, sans-serif; margin: 0 auto; max-width: 820px; padding: 16px; }
 header { display: flex; align-items: center; gap: 12px; }
@@ -14,3 +16,33 @@ pre { background: #8881; padding: 12px; border-radius: 6px; min-height: 12em; wh
 .stderr { color: #d33; }
 .meta { color: #888; }
 .error { color: #d33; }
+.row { display: contents; }
+
+/* Device screens (256x144, grayscale, keys only): no header, the output takes every spare
+   line, black and white with the focused control inverted. */
+@media (max-width: 480px), (max-height: 320px) {
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    display: flex; flex-direction: column; max-width: none; padding: 2px;
+    background: #000; color: #fff; font: 13px/13px Cozette, monospace;
+  }
+  header { display: contents; }
+  h1, #conn.ok { display: none; }
+  form { flex: none; gap: 2px; margin: 0 0 2px; flex-wrap: nowrap; flex-direction: column; align-items: stretch; }
+  .row { display: flex; gap: 2px; }
+  label { display: flex; align-items: center; gap: 2px; }
+  label .word { display: none; }
+  input, button { font: inherit; }
+  input { padding: 1px 3px; border: 1px solid #fff; border-radius: 0; background: #000; color: #fff; }
+  #host { flex: 1; min-width: 0; }
+  #count { width: 3.2em; }
+  button { flex: 1; padding: 1px 0; border: 1px solid #fff; border-radius: 0; background: #000; }
+  input:focus, button:focus { outline: none; background: #fff; color: #000; }
+  pre { font: inherit; flex: 1; min-height: 0; margin: 0; padding: 1px 2px; border-radius: 0; background: none; overflow-y: auto; }
+  .stderr, .error { color: #fff; text-decoration: underline; }
+  .meta { color: #aaa; }
+  .error { margin: 0 0 2px; }
+  /* The connection state, as a corner mark only while it is lost. */
+  #conn { position: fixed; top: 0; right: 0; padding: 0 3px; border-radius: 0; background: #fff; color: #000; font-size: inherit; }
+}

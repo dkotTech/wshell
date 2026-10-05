@@ -45,6 +45,8 @@ pub struct ApiState {
     pub launcher: Arc<crate::shell::Launcher>,
     /// Default width, height and fps of a new render (`[screen]`).
     pub screen: (u32, u32, u32),
+    /// `viewer/view.html` with `[web.keys]` filled in.
+    pub viewer_page: Arc<str>,
 }
 
 impl ApiState {
@@ -710,6 +712,13 @@ async fn index_page() -> Html<&'static str> {
     Html(include_str!("viewer/index.html"))
 }
 
-async fn viewer_page(Path(_id): Path<u64>) -> Html<&'static str> {
-    Html(include_str!("viewer/view.html"))
+async fn viewer_page(State(state): State<ApiState>, Path(_id): Path<u64>) -> Html<String> {
+    Html(state.viewer_page.to_string())
+}
+
+/// The viewer page with its key map (`[web.keys]`) as a JSON object literal.
+pub fn viewer_page_html(keys: &std::collections::BTreeMap<String, String>) -> String {
+    // `</` cannot appear in the JSON of plain key names, but keep the script safe anyway.
+    let json = serde_json::to_string(keys).unwrap().replace("</", "<\\/");
+    include_str!("viewer/view.html").replace("/*WEB_KEYS*/{}", &json)
 }

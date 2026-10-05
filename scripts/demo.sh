@@ -185,6 +185,14 @@ b "Terminal (kitty / WezTerm / Ghostty): own render sized to the window"
 echo "  $bin/render-rs -c $demo/render.toml tui"
 echo "  arrows + Enter: navigate · F12: launcher · Ctrl+Q: quit"
 echo
+# The TUI is plain terminal output (kitty graphics escapes), so it works over SSH as on a
+# device: shelld and the Renderer stay here, only the terminal is remote.
+b "Over SSH, as on a device (kitty; not inside tmux/screen)"
+echo "  kitten ssh -t -o IdentitiesOnly=yes localhost $bin/render-rs -c $demo/render.toml tui"
+if ! ss -ltn 'sport = :22' 2>/dev/null | grep -q LISTEN; then
+    echo "  no sshd on :22 here: sudo systemctl start sshd"
+fi
+echo
 b "Browser (one-time links: one use, 5 minutes)"
 echo "  dashboard: $(link dashboard)"
 ctl list | tail -n +2 | while read -r id _; do

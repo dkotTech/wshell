@@ -125,6 +125,7 @@ fn main() {
         token: cfg.api.token.as_str().into(),
         keys: Arc::new(std::mem::take(&mut cfg.keys)),
         launcher: Arc::new(cfg.shell.launcher()),
+        viewer_page: api::viewer_page_html(&cfg.web.keys).into(),
         screen: (cfg.screen.width, cfg.screen.height, cfg.screen.fps),
     };
 

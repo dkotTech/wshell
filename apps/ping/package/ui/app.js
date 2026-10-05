@@ -3,6 +3,7 @@
 const $ = (id) => document.getElementById(id);
 const out = $("out");
 let currentJob = null;
+let hosts = [];
 
 function print(text, cls) {
   const span = document.createElement("span");
@@ -24,7 +25,7 @@ function setBusy(job) {
 }
 
 async function refreshHistory() {
-  const hosts = await shell.call("history");
+  hosts = await shell.call("history");
   $("history").replaceChildren(...hosts.map((h) => Object.assign(document.createElement("option"), { value: h })));
 }
 
@@ -63,6 +64,35 @@ $("form").addEventListener("submit", (ev) => {
 });
 $("trace").addEventListener("click", () => run("tracepath", { host: $("host").value.trim() }));
 $("cancel").addEventListener("click", () => currentJob !== null && shell.call("cancel", { job: currentJob }));
+
+// Device keys (arrows, Enter, Back = Escape): Left/Right walk the controls, Up/Down pick a host
+// from the history in the host field and scroll the output elsewhere, Escape stops the job.
+function controls() {
+  return [$("host"), $("count"), $("ping"), $("trace"), $("cancel")].filter((c) => !c.disabled);
+}
+
+document.addEventListener("keydown", (e) => {
+  const el = document.activeElement;
+  const all = controls();
+  const i = all.indexOf(el);
+  const caretFree = el !== $("host") || (e.key === "ArrowLeft" ? el.selectionStart === 0 : el.selectionEnd === el.value.length);
+  if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && caretFree) {
+    all[(i + (e.key === "ArrowLeft" ? -1 : 1) + all.length) % all.length].focus();
+  } else if ((e.key === "ArrowUp" || e.key === "ArrowDown") && el === $("host") && hosts.length) {
+    const at = hosts.indexOf(el.value);
+    const next = at < 0 ? 0 : (at + (e.key === "ArrowDown" ? 1 : -1) + hosts.length) % hosts.length;
+    el.value = hosts[next];
+  } else if ((e.key === "ArrowUp" || e.key === "ArrowDown") && el !== $("count")) {
+    out.scrollBy(0, (e.key === "ArrowDown" ? 1 : -1) * out.clientHeight * 0.8);
+  } else if (e.key === "Escape" && currentJob !== null) {
+    shell.call("cancel", { job: currentJob });
+  } else {
+    return;
+  }
+  e.preventDefault();
+});
+
+$("host").focus();
 
 (async () => {
   try {

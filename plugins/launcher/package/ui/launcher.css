@@ -1,3 +1,9 @@
+/* Cozette (MIT, fonts/cozette-LICENSE.txt): a bitmap font, pixel-exact at 13px only. */
+@font-face {
+  font-family: Cozette;
+  src: url(fonts/cozette.woff) format("woff");
+}
+
 /* Sized for small monochrome screens (256x144, grayscale): high contrast,
    the selected item is inverted. Scales up for a normal browser as well. */
 * {
@@ -10,7 +16,7 @@ body {
   height: 100%;
   background: #000;
   color: #fff;
-  font: 13px/1.25 sans-serif;
+  font: 13px/13px Cozette, monospace;
 }
 
 header {
@@ -18,7 +24,6 @@ header {
   justify-content: space-between;
   padding: 2px 6px;
   border-bottom: 1px solid #fff;
-  font-weight: bold;
 }
 
 #status {

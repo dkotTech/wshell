@@ -9,11 +9,12 @@
      integer factor, otherwise nearest-neighbour drops/duplicates rows and the
      text looks clipped. JS sets an exact integer CSS size below. */
   canvas { image-rendering: pixelated; outline: 1px solid #263241; cursor: crosshair; }
-  .bar a { color: #7dd3fc; text-decoration: none; }
+  .bar a, .bar button { color: #7dd3fc; text-decoration: none; }
+  .bar button { background: none; border: 0; font: inherit; cursor: pointer; padding: 0; }
 </style></head>
 <body>
   <canvas id="c" tabindex="0"></canvas>
-  <div class="bar"><a href="/">← renders</a> <span id="status">connecting…</span></div>
+  <div class="bar"><a href="/">← renders</a> <button id="apps" title="App switcher (F12)">⌂ apps</button> <span id="status">connecting…</span></div>
 <script>
 const id = location.pathname.split('/').pop();
 const canvas = document.getElementById('c');
@@ -95,14 +96,21 @@ canvas.addEventListener('wheel', (e) => {
   send({ type: 'wheel', ...pos(e), dx: e.deltaX, dy: e.deltaY });
 }, { passive: false });
 
-// keyboard — forwarded while the canvas has focus
+// keyboard — forwarded while the canvas has focus; renamed per [web.keys]
+// (F12 → AppSwitch: a PC keyboard has no App switcher key)
+const KEYS = /*WEB_KEYS*/{};
+const keyName = (e) => KEYS[e.key] ?? e.key;
 canvas.addEventListener('keydown', (e) => {
   e.preventDefault();
-  send({ type: 'key', key: e.key, state: 'down' });
+  send({ type: 'key', key: keyName(e), state: 'down' });
 });
 canvas.addEventListener('keyup', (e) => {
   e.preventDefault();
-  send({ type: 'key', key: e.key, state: 'up' });
+  send({ type: 'key', key: keyName(e), state: 'up' });
+});
+document.getElementById('apps').addEventListener('click', () => {
+  fetch(`/api/renders/${id}/launcher`, { method: 'POST' });
+  canvas.focus();
 });
 canvas.focus();
 </script>
