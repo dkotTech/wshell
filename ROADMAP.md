@@ -50,7 +50,7 @@ but may put off contributors and integrators; decide on it before a public launc
 - ✅ Worker sandbox: namespaces, Landlock and seccomp (`[sandbox]`, `shelld check-sandbox`).
   Left: the AOT compiler process (`shelld compile`) runs untrusted input outside it.
 - ✅ `system.services` (systemd over D-Bus) with `apps/services`.
-- `system.network` (NetworkManager) permission.
+- ✅ `system.network` (NetworkManager over D-Bus) with `apps/network`. Left: systemd-networkd.
 - Close the spec's open questions: bridge format, minimum kernel.
 
 ## Phase 1: a dependable single node

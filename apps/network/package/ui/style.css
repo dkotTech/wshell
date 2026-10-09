@@ -1,0 +1,63 @@
+/* Cozette (MIT, fonts/cozette-LICENSE.txt): a bitmap font, pixel-exact at 13px only. */
+@font-face { font-family: Cozette; src: url(fonts/cozette.woff) format("woff"); }
+:root { color-scheme: light dark; --accent: #2f6fde; }
+body { font: 15px/1.4 system-ui, sans-serif; margin: 0 auto; max-width: 620px; padding: 16px; }
+header { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+h1 { font-size: 20px; margin: 0; cursor: default; }
+h2 { font-size: 15px; margin: 16px 0 4px; }
+.hint { color: #888; font-size: 13px; flex: 1; }
+.badge { font-size: 12px; padding: 2px 8px; border-radius: 10px; background: #8883; }
+.badge.ok { background: #2a2; color: #fff; }
+.error { color: #d33; }
+ul { list-style: none; padding: 0; margin: 0; }
+li { display: flex; align-items: center; gap: 10px; padding: 8px 4px; border-bottom: 1px solid #8883; cursor: pointer; }
+li:focus { outline: 2px solid var(--accent); outline-offset: -2px; }
+.dot { width: 10px; height: 10px; border-radius: 50%; background: #888; flex: none; }
+.connected .dot { background: #2a2; }
+.failed .dot { background: #d33; }
+.connecting .dot, .deactivating .dot { background: #da2; }
+.name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.name small { display: block; color: #888; }
+.state { color: #888; white-space: nowrap; }
+dl { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 0 0 12px; }
+dt { color: #888; }
+dd { margin: 0; overflow-wrap: anywhere; }
+button { font: inherit; padding: 4px 10px; border: 0; border-radius: 6px; background: var(--accent); color: #fff; cursor: pointer; }
+button.armed { background: #d33; }
+form { margin-top: 12px; display: flex; flex-wrap: wrap; gap: 8px; align-items: end; }
+label { flex: 1 1 100%; }
+input { display: block; width: 100%; box-sizing: border-box; font: inherit; padding: 4px 6px; margin-top: 4px; }
+
+/* Device screens (256x144, grayscale, keys only): one line per entry, the focused one
+   inverted. A password needs a keyboard: the remote browser has one. */
+@media (max-width: 480px), (max-height: 320px) {
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { display: flex; flex-direction: column; max-width: none; padding: 2px; background: #000; color: #fff; font: 13px/13px Cozette, monospace; }
+  header { display: flex; gap: 4px; margin: 0 0 2px; }
+  h1 { font-size: inherit; font-weight: normal; }
+  .hint { display: none; }
+  #conn.ok { display: none; }
+  #conn { position: fixed; top: 0; right: 0; padding: 0 3px; border-radius: 0; background: #fff; color: #000; font-size: inherit; }
+  .error { color: #fff; text-decoration: underline; margin: 0 0 2px; }
+  section { flex: 1; overflow-y: auto; }
+  h2 { font-size: inherit; font-weight: normal; margin: 2px 0 0; text-decoration: underline; }
+  li { gap: 4px; padding: 1px 2px; border: 0; }
+  li:focus, button:focus { outline: none; background: #fff; color: #000; }
+  .dot { width: auto; height: auto; border-radius: 0; background: none !important; }
+  .dot::before { content: "○"; }
+  .connected .dot::before { content: "●"; }
+  .failed .dot::before { content: "×"; }
+  .connecting .dot::before, .deactivating .dot::before { content: "◌"; }
+  .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .name small, .state { color: inherit; }
+  .name small, .extra { display: none; }
+  .secured .state::after { content: " *"; }
+  dl { gap: 0 4px; margin: 0 0 2px; }
+  dt { color: inherit; opacity: .6; }
+  dd { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  button { padding: 0 2px; border-radius: 0; background: #000; color: #fff; border: 1px solid #fff; }
+  button.armed { background: #fff; color: #000; }
+  form { margin-top: 2px; gap: 2px; }
+  input { padding: 0 2px; margin: 0; font: inherit; }
+}

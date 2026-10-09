@@ -45,6 +45,8 @@ pub struct Grants {
     pub apps: bool,
     /// `system.services`.
     pub services: bool,
+    /// `system.network`, either mode.
+    pub network: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -114,6 +116,14 @@ pub enum HostCall {
     ServicesList,
     ServicesStatus { unit: String },
     ServicesControl { unit: String, action: shell_core::manifest::ServiceAction },
+    /// `system.network`.
+    NetworkDevices,
+    NetworkAccessPoints { device: String },
+    NetworkScan { device: String },
+    /// `system.network` with `mode = "manage"` from here on.
+    NetworkConnect { device: String },
+    NetworkDisconnect { device: String },
+    NetworkConnectWifi { device: String, ssid: String, password: Option<Secret> },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -128,6 +138,8 @@ pub enum HostReply {
     Url(String),
     Units(Vec<UnitStatus>),
     UnitStatus(UnitStatus),
+    NetDevices(Vec<NetDevice>),
+    AccessPoints(Vec<AccessPoint>),
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -137,6 +149,38 @@ pub struct UnitStatus {
     pub load_state: String,
     pub active_state: String,
     pub sub_state: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct NetDevice {
+    pub name: String,
+    pub kind: String,
+    pub state: String,
+    pub connection: Option<String>,
+    pub hw_address: String,
+    pub ipv4: Vec<String>,
+    pub ipv6: Vec<String>,
+    pub gateway: Option<String>,
+    pub dns: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AccessPoint {
+    pub ssid: String,
+    pub strength: u8,
+    pub secured: bool,
+    pub active: bool,
+    pub saved: bool,
+}
+
+/// A password: kept out of `Debug` output and so out of logs.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct Secret(pub String);
+
+impl std::fmt::Debug for Secret {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Secret(..)")
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]

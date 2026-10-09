@@ -37,12 +37,13 @@ mod bindings {
             "shell:app/activity.busy": super::BusyHandle,
             "shell:app/apps.registry": super::RegistryHandle,
             "shell:app/services.manager": super::ServicesHandle,
+            "shell:app/network.manager": super::NetworkHandle,
         },
     });
 }
 
 use bindings::exports::shell::app::lifecycle;
-use bindings::shell::app::{activity, apps, events, exec, log, metrics, services, storage};
+use bindings::shell::app::{activity, apps, events, exec, log, metrics, network, services, storage};
 
 /// Limit on the body of an outgoing `wasi:http` request (same as in the supervisor).
 const MAX_HTTP_BODY: usize = 8 << 20;
@@ -55,6 +56,7 @@ pub struct CommandHandle {
 pub struct BusyHandle;
 pub struct RegistryHandle;
 pub struct ServicesHandle;
+pub struct NetworkHandle;
 
 /// Worker IPC over stdin/stdout. The reader thread dispatches replies to host calls
 /// to their waiters: the main WASM thread and `wasi:http` requests, which run
@@ -439,6 +441,81 @@ fn unit_status(u: ipc::UnitStatus) -> services::UnitStatus {
         load_state: u.load_state,
         active_state: u.active_state,
         sub_state: u.sub_state,
+    }
+}
+
+impl network::Host for Host {
+    fn open(&mut self) -> Option<Resource<NetworkHandle>> {
+        if !self.grants.network {
+            return None;
+        }
+        self.table.push(NetworkHandle).ok()
+    }
+}
+
+impl network::HostManager for Host {
+    fn devices(&mut self, _: Resource<NetworkHandle>) -> Result<Vec<network::Device>, String> {
+        match self.ipc.host_call(HostCall::NetworkDevices)? {
+            HostReply::NetDevices(devices) => Ok(devices
+                .into_iter()
+                .map(|d| network::Device {
+                    name: d.name,
+                    kind: d.kind,
+                    state: d.state,
+                    connection: d.connection,
+                    hw_address: d.hw_address,
+                    ipv4: d.ipv4,
+                    ipv6: d.ipv6,
+                    gateway: d.gateway,
+                    dns: d.dns,
+                })
+                .collect()),
+            r => Err(unexpected(r)),
+        }
+    }
+
+    fn access_points(&mut self, _: Resource<NetworkHandle>, device: String) -> Result<Vec<network::AccessPoint>, String> {
+        match self.ipc.host_call(HostCall::NetworkAccessPoints { device })? {
+            HostReply::AccessPoints(aps) => Ok(aps
+                .into_iter()
+                .map(|a| network::AccessPoint {
+                    ssid: a.ssid,
+                    strength: a.strength,
+                    secured: a.secured,
+                    active: a.active,
+                    saved: a.saved,
+                })
+                .collect()),
+            r => Err(unexpected(r)),
+        }
+    }
+
+    fn scan(&mut self, _: Resource<NetworkHandle>, device: String) -> Result<(), String> {
+        self.ipc.host_call(HostCall::NetworkScan { device }).map(drop)
+    }
+
+    fn connect(&mut self, _: Resource<NetworkHandle>, device: String) -> Result<(), String> {
+        self.ipc.host_call(HostCall::NetworkConnect { device }).map(drop)
+    }
+
+    fn disconnect(&mut self, _: Resource<NetworkHandle>, device: String) -> Result<(), String> {
+        self.ipc.host_call(HostCall::NetworkDisconnect { device }).map(drop)
+    }
+
+    fn connect_wifi(
+        &mut self,
+        _: Resource<NetworkHandle>,
+        device: String,
+        ssid: String,
+        password: Option<String>,
+    ) -> Result<(), String> {
+        let password = password.map(ipc::Secret);
+        self.ipc.host_call(HostCall::NetworkConnectWifi { device, ssid, password }).map(drop)
+    }
+
+    fn drop(&mut self, rep: Resource<NetworkHandle>) -> wasmtime::Result<()> {
+        self.table.delete(rep)?;
+        Ok(())
     }
 }
 

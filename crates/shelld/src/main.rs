@@ -15,6 +15,7 @@ mod lifecycle;
 mod logs;
 #[cfg(feature = "metrics")]
 mod metrics;
+mod networkmanager;
 mod package;
 mod process;
 mod sandbox;

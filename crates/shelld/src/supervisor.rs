@@ -51,6 +51,8 @@ pub struct Supervisor {
     pub reconcile_lock: tokio::sync::Mutex<()>,
     /// D-Bus connection for `system.services`, opened on first use.
     pub dbus: tokio::sync::OnceCell<zbus::Connection>,
+    /// System bus connection for `system.network` (NetworkManager), opened on first use.
+    pub system_bus: tokio::sync::OnceCell<zbus::Connection>,
     #[cfg_attr(not(any(feature = "dashboard", feature = "metrics")), allow(dead_code))]
     started_at: u64,
     /// Wakes those waiting for a start or stop to finish (cold start).
@@ -273,6 +275,7 @@ impl Supervisor {
             install_lock: tokio::sync::Mutex::new(()),
             reconcile_lock: tokio::sync::Mutex::new(()),
             dbus: tokio::sync::OnceCell::new(),
+            system_bus: tokio::sync::OnceCell::new(),
             started_at: unix_now(),
             state_changed: tokio::sync::Notify::new(),
         }))
@@ -695,6 +698,7 @@ impl Supervisor {
                 listen: g.listen.clone(),
                 apps: g.apps,
                 services: g.services.is_some(),
+                network: g.network.is_some(),
             },
         }));
 

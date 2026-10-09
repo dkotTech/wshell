@@ -107,6 +107,61 @@ interface services {
     open: func() -> option<manager>;
 }
 
+/// The `system.network` permission: the network through NetworkManager. With `mode = "read"`
+/// the state only; changing it (`connect`, `disconnect`, `connect-wifi`) takes
+/// `mode = "manage"`.
+interface network {
+    /// A network interface as NetworkManager sees it.
+    record device {
+        /// Interface name: `eth0`, `wlan0`, …
+        name: string,
+        /// `ethernet`, `wifi`, `loopback`, `bridge`, `vlan`, `wireguard`, `modem`, `other`, …
+        kind: string,
+        /// `connected`, `connecting`, `disconnected`, `unavailable` (no cable, radio off),
+        /// `unmanaged`, `deactivating`, `failed`, `unknown`.
+        state: string,
+        /// The name of the active connection profile.
+        connection: option<string>,
+        hw-address: string,
+        /// Addresses with the prefix: `192.168.1.10/24`.
+        ipv4: list<string>,
+        ipv6: list<string>,
+        gateway: option<string>,
+        dns: list<string>,
+    }
+
+    /// A Wi-Fi network in range; one entry per network name, the strongest access point.
+    record access-point {
+        ssid: string,
+        /// Signal strength, 0–100.
+        strength: u8,
+        /// Needs a password (WPA/WPA2/WPA3).
+        secured: bool,
+        /// The device is connected to it.
+        active: bool,
+        /// A saved profile exists: `connect-wifi` needs no password.
+        saved: bool,
+    }
+
+    resource manager {
+        devices: func() -> result<list<device>, string>;
+        /// For a Wi-Fi device: the networks from the last scan.
+        access-points: func(device: string) -> result<list<access-point>, string>;
+        /// Asks for a new Wi-Fi scan; the result shows in `access-points` a few seconds later.
+        scan: func(device: string) -> result<_, string>;
+        /// `manage`: connects the device with the best saved profile for it.
+        connect: func(device: string) -> result<_, string>;
+        /// `manage`: disconnects the device; it stays so until `connect`.
+        disconnect: func(device: string) -> result<_, string>;
+        /// `manage`: connects a Wi-Fi device to a network in range. Without `password`, with
+        /// the network's saved profile (or none needed for an open network); with one, with a
+        /// new profile that NetworkManager saves. WPA/WPA2/WPA3 personal only.
+        connect-wifi: func(device: string, ssid: string, password: option<string>) -> result<_, string>;
+    }
+
+    open: func() -> option<manager>;
+}
+
 /// The `shell.apps` permission, plugins only (`kind = "plugin"`): the apps installed in
 /// Shell and their UI. Lets a plugin build a launcher, a switcher, a status screen.
 interface apps {
@@ -198,6 +253,7 @@ world app {
     import storage;
     import exec;
     import services;
+    import network;
     // The `net.http` permission is standard `wasi:http/outgoing-handler`: the component imports
     // it itself (e.g. via wstd); Shell checks the hosts and performs the request.
 

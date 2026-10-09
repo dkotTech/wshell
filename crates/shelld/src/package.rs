@@ -137,6 +137,8 @@ pub struct Grants {
     /// `shell.apps` (plugins): the installed apps and links to their UI.
     pub apps: bool,
     pub services: Option<ServicesGrant>,
+    /// `system.network`: reading, or also changing, the network.
+    pub network: Option<shell_core::manifest::NetworkMode>,
 }
 
 #[derive(Debug, Clone)]
@@ -184,7 +186,7 @@ impl Grants {
                 PermissionKind::SystemServices { units, actions } => {
                     g.services = Some(ServicesGrant { units: units.clone(), actions: actions.clone() });
                 }
-                PermissionKind::SystemNetwork { .. } => {}
+                PermissionKind::SystemNetwork { mode } => g.network = Some(*mode),
             }
         }
         Ok(g)

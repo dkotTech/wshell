@@ -1,0 +1,26 @@
+[app]
+id = "org.wshell.network"
+version = "0.1.0"
+name = "Network"
+shell_api = "0.1"
+
+[backend]
+component = "backend.wasm"
+world = "shell:app/app@0.1.0"
+
+[ui]
+entry = "ui/index.html"
+
+# "manage" changes the device's real network: disconnecting the link the UI is opened over
+# cuts it off. mode = "read" leaves the state only.
+[[permissions]]
+id = "system.network"
+mode = "manage"
+reason = "Showing the network and connecting to Wi-Fi"
+
+[resources]
+memory_mb = 16
+
+[lifecycle]
+idle = "stop"
+priority = "normal"

@@ -21,6 +21,7 @@ Roadmap: [ROADMAP.md](ROADMAP.md).
 | `apps/hello-go` | Experiment: a Go `net/http` server (TinyGo) via a hand-written network driver |
 | `apps/todo-py` | Example in Python (`componentize-py`): a todo list with UI, state in `storage.private` |
 | `apps/services` | Example: systemd services (`system.services`): their state, start, stop, restart |
+| `apps/network` | Example: the network (`system.network`): devices, addresses, Wi-Fi networks, connecting |
 | `apps/stress` | Test application for checking limits (fuel, memory) |
 | `plugins/launcher` | Plugin: the device's home screen for the Renderer (list of apps, opening their UI) |
 
@@ -311,6 +312,52 @@ manager.control("nginx.service", services::Action::Restart)?;   // queues the jo
   which creates `wshell-demo-*.service` under `$XDG_RUNTIME_DIR/systemd/user` and removes them
   on exit.
 
+## Network (`system.network`)
+
+An app reads and changes the network through Shell and NetworkManager (over D-Bus on the
+system bus); it never talks to NetworkManager itself.
+
+```toml
+[[permissions]]
+id = "system.network"
+mode = "read"          # the state only; "manage" also connects and disconnects
+```
+
+```rust
+let net = network::open().ok_or("not granted")?;
+net.devices()?;                                   // name, kind, state, profile, addresses, gateway, DNS
+net.access_points("wlan0")?;                      // Wi-Fi networks in range: strength, secured, saved
+net.scan("wlan0")?;                               // a new scan, results a few seconds later
+net.connect("eth0")?;                             // manage: the best saved profile
+net.disconnect("eth0")?;                          // manage
+net.connect_wifi("wlan0", "Home", Some("secret"))?;   // manage: a new profile, saved by NetworkManager
+```
+
+- Changes need `mode = "manage"`; with `read` they are denied and audited, like every change
+  (the Wi-Fi password never reaches the logs).
+- `connect-wifi` without a password uses the network's saved profile. WPA/WPA2/WPA3 personal
+  only: no WEP, no 802.1X.
+- shelld normally runs as a non-root user outside a login session, so polkit decides what it
+  may change:
+
+  ```js
+  // /etc/polkit-1/rules.d/50-wshell-network.rules
+  polkit.addRule(function (action, subject) {
+      if (subject.user == "wshell" && [
+              "org.freedesktop.NetworkManager.network-control",
+              "org.freedesktop.NetworkManager.wifi.scan",
+              "org.freedesktop.NetworkManager.settings.modify.system",
+              "org.freedesktop.NetworkManager.settings.modify.own",
+          ].indexOf(action.id) >= 0) {
+          return polkit.Result.YES;
+      }
+  });
+  ```
+
+  The demo runs shelld in the user's session, where NetworkManager allows these by default:
+  the network app there changes the machine's real network (disconnecting asks twice).
+- Only NetworkManager for now; systemd-networkd (the spec's other option) is not supported.
+
 ## Programs with `main` (kind = "command")
 
 Besides `shell:app` world applications (UI bridge, hooks, events), Shell runs ordinary programs:
@@ -460,9 +507,10 @@ Done: supervisor, one process per app, cgroups v2 + fuel + memory limit, manifes
 static import checking, `storage.private`, `net.http`, `exec` permissions, optional permissions,
 UI HTTP server with a subdomain per app, bridge and `shell.js`, a single resource profile,
 `shellctl install/list/start/stop/logs`, ping/tracepath example, worker sandbox
-(namespaces, Landlock, seccomp), `system.services` (systemd over D-Bus) with the services example.
+(namespaces, Landlock, seccomp), `system.services` (systemd over D-Bus) with the services example,
+`system.network` (NetworkManager) with the network example.
 
-Remaining in the MVP scope: the `system.network` (NetworkManager) permission and the "network" example.
+Remaining in the MVP scope: closing the spec's open questions (bridge format, minimum kernel).
 
 ## License
 

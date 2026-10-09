@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Network</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="/_shell/shell.js"></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <header>
+    <h1 id="title">Network</h1>
+    <span id="hint" class="hint"></span>
+    <span id="conn" class="badge">disconnected</span>
+  </header>
+  <p id="error" class="error" hidden></p>
+
+  <section id="devices">
+    <ul id="device-list"></ul>
+    <p id="no-devices" class="hint" hidden>no network devices</p>
+  </section>
+
+  <section id="device" hidden>
+    <dl id="props"></dl>
+    <button id="toggle" type="button"></button>
+    <div id="wifi" hidden>
+      <h2>Wi-Fi networks</h2>
+      <ul id="ap-list"></ul>
+      <p id="no-aps" class="hint" hidden>no networks in range</p>
+      <form id="password-form" hidden>
+        <label>Password for <b id="password-ssid"></b>
+          <input id="password" type="password" autocomplete="off" minlength="8" required>
+        </label>
+        <button type="submit">connect</button>
+        <button id="password-cancel" type="button">cancel</button>
+      </form>
+    </div>
+  </section>
+</body>
+</html>

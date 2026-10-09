@@ -81,7 +81,67 @@ pub async fn handle(sup: &Arc<Supervisor>, worker: &Arc<Worker>, call: HostCall)
             worker.log.write("shell", &format!("system.services: {detail} {outcome}"));
             result.map(|()| HostReply::Unit)
         }
+        HostCall::NetworkDevices => {
+            let conn = network_conn(sup, worker, None).await?;
+            crate::networkmanager::devices(conn).await.map(HostReply::NetDevices).map_err(|e| format!("{e:#}"))
+        }
+        HostCall::NetworkAccessPoints { device } => {
+            let conn = network_conn(sup, worker, None).await?;
+            let aps = crate::networkmanager::access_points(conn, &device).await;
+            aps.map(HostReply::AccessPoints).map_err(|e| format!("{e:#}"))
+        }
+        HostCall::NetworkScan { device } => {
+            let conn = network_conn(sup, worker, None).await?;
+            crate::networkmanager::scan(conn, &device).await.map(|()| HostReply::Unit).map_err(|e| format!("{e:#}"))
+        }
+        HostCall::NetworkConnect { device } => {
+            let detail = format!("connect {device}");
+            let conn = network_conn(sup, worker, Some(&detail)).await?;
+            let result = crate::networkmanager::connect_device(conn, &device).await;
+            network_changed(sup, worker, &detail, result)
+        }
+        HostCall::NetworkDisconnect { device } => {
+            let detail = format!("disconnect {device}");
+            let conn = network_conn(sup, worker, Some(&detail)).await?;
+            let result = crate::networkmanager::disconnect(conn, &device).await;
+            network_changed(sup, worker, &detail, result)
+        }
+        HostCall::NetworkConnectWifi { device, ssid, password } => {
+            // The password goes to NetworkManager only, never to the logs.
+            let detail = format!("connect-wifi {device} {ssid:?}");
+            let conn = network_conn(sup, worker, Some(&detail)).await?;
+            let password = password.as_ref().map(|p| p.0.as_str());
+            let result = crate::networkmanager::connect_wifi(conn, &device, &ssid, password).await;
+            network_changed(sup, worker, &detail, result)
+        }
     }
+}
+
+// --- system.network ---
+
+/// The system bus, after checking the permission and, for a change (`change` describes it),
+/// `mode = "manage"`.
+async fn network_conn<'a>(sup: &'a Supervisor, worker: &Worker, change: Option<&str>) -> Result<&'a zbus::Connection, String> {
+    let Some(mode) = worker.installed.grants.network else {
+        return Err("permission system.network not granted".into());
+    };
+    if let Some(change) = change
+        && mode != shell_core::manifest::NetworkMode::Manage
+    {
+        let app = &worker.installed.manifest.app.id;
+        sup.audit.record(app, "deny-call", &format!("system.network {change}: mode is read"));
+        return Err("system.network: changing the network takes mode = \"manage\"".into());
+    }
+    sup.system_bus.get_or_try_init(crate::networkmanager::connect).await.map_err(|e| format!("{e:#}"))
+}
+
+/// Audits a change and writes it to the app's log.
+fn network_changed(sup: &Supervisor, worker: &Worker, detail: &str, result: anyhow::Result<()>) -> Result<HostReply, String> {
+    worker.activity.touch();
+    let outcome = if result.is_ok() { "queued" } else { "failed" };
+    sup.audit.record(&worker.installed.manifest.app.id, "network", &format!("{detail} {outcome}"));
+    worker.log.write("shell", &format!("system.network: {detail} {outcome}"));
+    result.map(|()| HostReply::Unit).map_err(|e| format!("{e:#}"))
 }
 
 // --- system.services ---
