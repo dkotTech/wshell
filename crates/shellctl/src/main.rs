@@ -2,13 +2,16 @@
 
 #![forbid(unsafe_code)]
 
-use std::io::{BufRead, BufReader, IsTerminal, Write};
+use std::collections::BTreeMap;
+use std::io::{BufRead, BufReader, IsTerminal, Read, Write};
 use std::os::unix::net::UnixStream;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
-use shell_core::control::{PackageInfo, Request, Response};
+use shell_core::control::{AppState, PackageInfo, Request, Response};
+use shell_core::desired::{self, Current, DesiredState, Package, Step};
+use shell_core::manifest::Manifest;
 
 #[derive(Parser)]
 #[command(version, about = "Manage the wshell shell")]
@@ -34,6 +37,16 @@ enum Cmd {
         /// Grant all optional permissions.
         #[arg(long)]
         grant_all: bool,
+    },
+    /// Bring the installed apps to a desired-state file (TOML); applying it again does nothing.
+    Apply {
+        file: PathBuf,
+        /// Remove installed apps (and their data) that the file does not list.
+        #[arg(long)]
+        prune: bool,
+        /// Only print the plan.
+        #[arg(short = 'n', long)]
+        dry_run: bool,
     },
     /// Remove an app and its data.
     Uninstall { id: String },
@@ -138,6 +151,7 @@ fn run() -> Result<()> {
             let path = std::fs::canonicalize(&path).with_context(|| format!("{}", path.display()))?;
             install(&mut conn, path, yes, grant, grant_all)
         }
+        Cmd::Apply { file, prune, dry_run } => apply(&mut conn, &file, prune, dry_run),
         Cmd::Uninstall { id } => {
             conn.request(&Request::Uninstall { id: id.clone() })?;
             println!("{id} removed");
@@ -232,6 +246,85 @@ fn install(conn: &mut Conn, path: PathBuf, yes: bool, grant: Vec<String>, grant_
         _ => bail!("unexpected response from shelld"),
     }
     Ok(())
+}
+
+/// The file lists the apps and their optional permissions, so applying it is the consent:
+/// there are no questions, unlike `install`.
+fn apply(conn: &mut Conn, file: &Path, prune: bool, dry_run: bool) -> Result<()> {
+    let mut desired = DesiredState::load(file)?;
+    let mut packages = BTreeMap::new();
+    for (id, app) in &mut desired.apps {
+        // shelld opens the package itself, from its own working directory.
+        app.package = std::fs::canonicalize(&app.package)
+            .with_context(|| format!("{id}: package {}", app.package.display()))?;
+        let manifest =
+            read_manifest(&app.package).with_context(|| format!("{id}: {}", app.package.display()))?;
+        let permissions = manifest.permissions.iter().map(|p| (p.key(), p.optional)).collect();
+        packages.insert(
+            id.clone(),
+            Package { id: manifest.app.id, version: manifest.app.version, permissions },
+        );
+    }
+
+    let Response::Apps { apps } = conn.request(&Request::List)? else {
+        bail!("unexpected response from shelld");
+    };
+    let current: Vec<Current> = apps
+        .iter()
+        .map(|a| Current {
+            id: a.id.clone(),
+            version: a.version.clone(),
+            running: matches!(a.state, AppState::Starting | AppState::Running | AppState::Suspended),
+            granted: a.permissions.iter().filter(|p| p.granted).map(|p| p.key.clone()).collect(),
+        })
+        .collect();
+
+    let plan = desired::plan(&desired, &packages, &current, prune)?;
+    for id in &plan.unlisted {
+        println!("not in {}: {id} (kept; --prune removes it)", file.display());
+    }
+    if plan.steps.is_empty() {
+        println!("up to date");
+        return Ok(());
+    }
+    for step in &plan.steps {
+        if dry_run {
+            println!("would {step}");
+            continue;
+        }
+        println!("{step}");
+        let req = match step {
+            Step::Stop { id } => Request::Stop { id: id.clone(), force: false },
+            Step::Start { id } => Request::Start { id: id.clone() },
+            Step::Uninstall { id } => Request::Uninstall { id: id.clone() },
+            Step::Install { package, grant, .. } => {
+                Request::Install { path: package.clone(), grant_optional: grant.clone() }
+            }
+        };
+        conn.request(&req).with_context(|| format!("{step}"))?;
+    }
+    Ok(())
+}
+
+/// `app.toml` of a package directory or `.pkg` archive, without unpacking the rest.
+fn read_manifest(path: &Path) -> Result<Manifest> {
+    let text = if path.is_dir() {
+        std::fs::read_to_string(path.join("app.toml"))?
+    } else {
+        let mut ar = tar::Archive::new(std::fs::File::open(path)?);
+        let mut found = None;
+        for entry in ar.entries()? {
+            let mut entry = entry?;
+            if entry.path()?.components().eq(Path::new("app.toml").components()) {
+                let mut text = String::new();
+                entry.read_to_string(&mut text)?;
+                found = Some(text);
+                break;
+            }
+        }
+        found.context("no app.toml in the package")?
+    };
+    Manifest::parse(&text)
 }
 
 /// Opens a one-time link in a browser or prints it.

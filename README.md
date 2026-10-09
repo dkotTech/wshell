@@ -2,6 +2,7 @@
 
 A shell for running isolated WASM applications with a web UI on Linux devices.
 Specification: "Specification: a shell for running WASM applications" (v0.1).
+Roadmap: [ROADMAP.md](ROADMAP.md).
 
 ## Contents
 
@@ -47,6 +48,39 @@ shellctl stop org.wshell.ping
 
 A link like `http://org.wshell.ping.localhost:8470/_shell/auth?token=…` is opened in a browser
 on the same device. To check the effective configuration: `shelld check-config`.
+
+## Desired state (`shellctl apply`)
+
+Instead of a sequence of `install`/`start`/`stop` commands, the set of apps can be described in a
+file and kept in Git:
+
+```toml
+# apps.toml
+[app."org.wshell.ping"]
+package = "target/apps/ping.pkg"   # .pkg or a package directory; relative to this file
+grant = ["exec:tracepath"]         # optional permissions; the rest stay denied
+state = "running"                  # running | stopped; absent: not managed
+
+[app."org.wshell.todo-py"]
+package = "target/apps/todo-py.pkg"
+```
+
+```sh
+shellctl apply -n apps.toml        # print the plan only
+shellctl apply apps.toml           # install, update, start, stop to match the file
+shellctl apply --prune apps.toml   # also uninstall apps the file does not list (with their data)
+```
+
+- **Idempotent.** An app is (re)installed only if it is missing, its version differs from the
+  package's, or its granted permissions differ from the file; applying the same file again prints
+  `up to date`. A rebuilt package with the same version is not noticed: bump the version.
+- **The file is the consent.** Required permissions come with the install and the optional ones
+  are exactly `grant`, without questions (like `install --yes`).
+- **Updates** stop a running app, install, and start it again unless `state = "stopped"`.
+- Unlisted apps are only reported unless `--prune` is given. The first error stops `apply`;
+  the steps before it stay applied.
+- `apply` is client-side for now: it compares the file with `shellctl list`, reading only
+  `app.toml` from the packages. shelld does not keep the file or reconcile on its own yet.
 
 ## Dashboard
 

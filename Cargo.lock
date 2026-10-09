@@ -7140,6 +7140,7 @@ dependencies = [
  "clap",
  "serde_json",
  "shell-core",
+ "tar",
 ]
 
 [[package]]
