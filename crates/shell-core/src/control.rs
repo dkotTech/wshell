@@ -123,6 +123,9 @@ pub struct ReconcileReport {
 pub struct PackageInfo {
     /// For a registry: pinned to the digest that was read.
     pub source: Source,
+    /// The trusted key (`registry.keys`) that signed a registry package.
+    #[serde(default)]
+    pub signed_by: Option<String>,
     pub id: String,
     pub name: String,
     pub version: String,

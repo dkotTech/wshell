@@ -138,7 +138,30 @@ package = "oci://ghcr.io/acme/ping:stable"   # a new version under the tag is in
   unused: a desired-state file naming a tag only re-reads its manifest on each pass.
 - The registry is always written out (`docker.io/…`, not `…`). HTTPS, except `localhost` and
   `[registry] insecure = ["host:port"]`; packages up to `[registry] max_package_mb`.
-- Not yet: private registries (logins) and signatures (see ROADMAP).
+- Not yet: private registries (logins).
+
+**Signatures.** With trusted keys in the config, shelld installs a registry package only if one
+of them signed it with cosign:
+
+```sh
+cosign generate-key-pair                                   # cosign.key, cosign.pub
+cosign sign --key cosign.key ghcr.io/acme/ping@sha256:…    # sign the digest, not the tag
+```
+
+```toml
+[registry]
+keys = ["/etc/wshell/keys/acme.pub"]   # any of them; none: signatures are not checked
+```
+
+- cosign 3 attaches a sigstore bundle to the package as an OCI referrer (the referrers API, or
+  the `sha256-<hex>` tag on registries without it). shelld checks the ECDSA P-256 signature of
+  its DSSE envelope and that the signed statement names the package's manifest digest, which in
+  turn names the layer: the whole package is covered. This happens before the layer is
+  downloaded; `install` shows `signed by …` and the audit log records the key.
+- Only the key is checked, not the transparency log (like `cosign verify --insecure-ignore-tlog`):
+  trust comes from the configured keys. Keyless (OIDC) signatures are not supported.
+- Local `.pkg` files and directories are not checked: installing them is the operator's own act.
+- A key file that does not load stops shelld from starting.
 
 ## Dashboard
 

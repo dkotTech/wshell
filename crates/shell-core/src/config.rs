@@ -224,6 +224,9 @@ pub struct RegistrySection {
     pub insecure: Vec<String>,
     /// Largest package (the `.pkg` layer) to download.
     pub max_package_mb: u32,
+    /// Trusted cosign public keys (PEM files). Not empty: a registry package installs only if
+    /// one of them signed it.
+    pub keys: Vec<PathBuf>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]

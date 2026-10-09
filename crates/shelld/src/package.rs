@@ -365,6 +365,7 @@ pub fn package_info(staged: &Staged, source: Source, current: Option<&Installed>
     let m = &staged.manifest;
     PackageInfo {
         source,
+        signed_by: None,
         id: m.app.id.clone(),
         name: m.app.name.clone(),
         version: m.app.version.clone(),

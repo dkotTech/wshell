@@ -43,6 +43,8 @@ tar = "0.4"
 # Safe wrappers over Linux system calls (prctl, kill, inotify), without unsafe.
 rustix = { version = "1", features = ["fs", "process", "thread", "param"] }
 sha2 = "0.10"
+ring = "0.17"
+base64 = "0.22"
 seccompiler = "0.5.0"
 landlock = "0.4.7"
 nix = { version = "0.31.3", default-features = false, features = ["sched"] }

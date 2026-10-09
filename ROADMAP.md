@@ -72,8 +72,8 @@ Goal: one machine can run production instead of docker-compose or k3s.
 2. **Distribution.** Packages as OCI artifacts.
    - ✅ `shellctl install oci://ghcr.io/…` and `oci://` in the desired-state file: pulled by
      shelld, pinned to a digest, cached; published with `oras push` (see README).
-   - Next: signatures (cosign, trusted keys in the config, `[registry] require_signature`);
-     then logins for private registries.
+   - ✅ Signatures: cosign 3 key signatures, `[registry] keys`; checked before the download.
+   - Next: logins for private registries; keyless (OIDC, Rekor) signatures if needed.
 3. **Updates.** Start the new version next to the old one, wait for readiness, switch over;
    rollback and a `storage` migration hook.
 4. **Health checks.** Readiness and liveness as a WIT export (`health.check`) with timeouts.
@@ -133,5 +133,4 @@ No own consensus up front; in steps:
 
 ## Next
 
-Package signatures (phase 1, item 2): shelld installs from a registry only what a trusted key
-signed (cosign).
+Logins for private registries (phase 1, item 2), then updates with rollback (item 3).

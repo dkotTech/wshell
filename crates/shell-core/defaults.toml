@@ -60,6 +60,7 @@ bus = "system"
 # Packages from OCI registries (shellctl install oci://ghcr.io/acme/ping:1.0)
 insecure = []                     # registries ("host:port") over plain HTTP; localhost always is
 max_package_mb = 256
+keys = []                         # cosign public keys; set: only packages one of them signed
 
 [lifecycle]
 start_on_demand = true            # start a stopped app when its UI is opened or on a call

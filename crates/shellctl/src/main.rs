@@ -346,6 +346,9 @@ fn print_package(info: &PackageInfo) {
     if let Source::Oci(r) = &info.source {
         println!("from {r}");
     }
+    if let Some(key) = &info.signed_by {
+        println!("signed by {key}");
+    }
     match &info.installed_version {
         Some(v) => println!("{} ({}) {} → {}", info.name, info.id, v, info.version),
         None => println!("{} ({}) {}", info.name, info.id, info.version),

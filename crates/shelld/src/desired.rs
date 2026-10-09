@@ -28,7 +28,7 @@ impl Supervisor {
         let mut pulled = HashMap::new();
         for app in desired.apps.values() {
             if let Source::Oci(r) = &app.package {
-                let (path, Source::Oci(pinned)) = self.fetch(&app.package).await? else { unreachable!() };
+                let (path, Source::Oci(pinned), _) = self.fetch(&app.package).await? else { unreachable!() };
                 pulled.insert(r.to_string(), (path, pinned));
             }
         }

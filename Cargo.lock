@@ -7295,6 +7295,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
+ "base64 0.22.1",
  "bytes",
  "clap",
  "futures-util",
@@ -7307,6 +7308,7 @@ dependencies = [
  "postcard",
  "rand 0.9.5",
  "reqwest",
+ "ring",
  "rust-embed",
  "rustix",
  "seccompiler",

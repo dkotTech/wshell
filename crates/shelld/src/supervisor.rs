@@ -42,6 +42,8 @@ pub struct Supervisor {
     pub http_client: reqwest::Client,
     /// For OCI registries: follows redirects to their CDNs, longer timeouts.
     registry_client: reqwest::Client,
+    /// `registry.keys`, loaded at start.
+    trusted_keys: Vec<crate::signature::TrustedKey>,
     pub(crate) cgroups: Option<Cgroups>,
     apps: Mutex<BTreeMap<String, App>>,
     /// One-time token → access scope and expiry.
@@ -261,6 +263,18 @@ impl Supervisor {
         }
         tracing::info!("installed apps: {}", apps.len());
 
+        // A key that does not load is a configuration error: refusing to start beats
+        // installing unsigned packages.
+        let trusted_keys = cfg
+            .registry
+            .keys
+            .iter()
+            .map(|k| crate::signature::load_key(k))
+            .collect::<Result<Vec<_>>>()
+            .context("registry.keys")?;
+        if !trusted_keys.is_empty() {
+            tracing::info!("registry packages must be signed by one of {} trusted key(s)", trusted_keys.len());
+        }
         let http_client = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .timeout(Duration::from_secs(30))
@@ -274,6 +288,7 @@ impl Supervisor {
             engine,
             http_client,
             registry_client: crate::oci::client()?,
+            trusted_keys,
             cgroups,
             apps: Mutex::new(apps),
             tokens: Mutex::default(),
@@ -434,31 +449,36 @@ impl Supervisor {
 
     /// A local package file or directory for the source, and the source pinned to what was
     /// read: a registry package is pulled (or taken from the cache).
-    pub async fn fetch(&self, source: &Source) -> Result<(PathBuf, Source)> {
+    /// Also the trusted key that signed a registry package (when keys are configured).
+    pub async fn fetch(&self, source: &Source) -> Result<(PathBuf, Source, Option<String>)> {
         match source {
-            Source::Path(p) => Ok((p.clone(), source.clone())),
+            Source::Path(p) => Ok((p.clone(), source.clone(), None)),
             Source::Oci(r) => {
                 let cache = self.paths.registry_cache();
-                let pulled = crate::oci::pull(&self.registry_client, &self.cfg.registry, &cache, r).await?;
+                let pulled =
+                    crate::oci::pull(&self.registry_client, &self.cfg.registry, &self.trusted_keys, &cache, r).await?;
                 if r.digest.is_none() {
                     tracing::info!("{r} is {}", pulled.pinned);
                 }
-                Ok((pulled.path, Source::Oci(pulled.pinned)))
+                let signer = pulled.signer.map(|k| k.display().to_string());
+                Ok((pulled.path, Source::Oci(pulled.pinned), signer))
             }
         }
     }
 
     pub async fn inspect(self: &Arc<Self>, source: Source) -> Result<PackageInfo> {
-        let (path, source) = self.fetch(&source).await?;
+        let (path, source, signed_by) = self.fetch(&source).await?;
         let this = self.clone();
         let staged = tokio::task::spawn_blocking(move || package::stage(&path, &this.paths, &this.cfg, &this.engine))
             .await??;
         let current = self.installed(&staged.manifest.app.id);
-        Ok(package::package_info(&staged, source, current.as_deref()))
+        let mut info = package::package_info(&staged, source, current.as_deref());
+        info.signed_by = signed_by;
+        Ok(info)
     }
 
     pub async fn install(self: &Arc<Self>, source: Source, grant_optional: Vec<String>) -> Result<(String, String)> {
-        let (path, source) = self.fetch(&source).await?;
+        let (path, source, signed_by) = self.fetch(&source).await?;
         let _guard = self.install_lock.lock().await;
         let this = self.clone();
         let installed = tokio::task::spawn_blocking(move || -> Result<Installed> {
@@ -490,7 +510,8 @@ impl Supervisor {
         log.write("shell", &format!("installed version {version} from {source}"));
         if let Source::Oci(_) = source {
             // Which artifact exactly: the digest, not a tag that may move.
-            self.audit.record(&id, "source", &source.to_string());
+            let signed = signed_by.map(|k| format!(", signed by {k}")).unwrap_or_default();
+            self.audit.record(&id, "source", &format!("{source}{signed}"));
         }
         Ok((id, version))
     }
