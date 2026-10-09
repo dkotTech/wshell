@@ -9,6 +9,7 @@ mod control;
 mod dashboard;
 mod desired;
 mod engine;
+mod host;
 mod hostsvc;
 mod ipc;
 mod lifecycle;
@@ -51,6 +52,8 @@ enum Command {
     CheckConfig,
     /// Enter a worker's sandbox and check what it forbids on this kernel.
     CheckSandbox,
+    /// Check what the kernel offers: version, cgroups, seccomp, user namespaces, Landlock.
+    CheckHost,
     /// Internal mode: an app's worker process (started by the supervisor).
     #[command(hide = true)]
     Worker {
@@ -83,6 +86,7 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
     match &cli.command {
         Some(Command::CheckSandbox) => return sandbox::check(),
+        Some(Command::CheckHost) => return host::report(),
         Some(Command::Worker { sandbox, pkg, listen }) => {
             return worker::run(&sandbox::Spec { mode: *sandbox, pkg_dir: pkg, listen });
         }
@@ -118,6 +122,7 @@ async fn run(cfg: Config) -> Result<()> {
     if shell_core::config::is_root() {
         tracing::warn!("shelld is running as root: exec utilities will run as root (privilege helper comes after the MVP)");
     }
+    host::warn_at_start();
     let sup = supervisor::Supervisor::new(cfg)?;
 
     let control = tokio::spawn(control::serve(sup.clone()));

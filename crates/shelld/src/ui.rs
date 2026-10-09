@@ -129,6 +129,7 @@ async fn call(
                 CallError::NotRunning | CallError::StartFailed(_) => StatusCode::SERVICE_UNAVAILABLE,
                 CallError::Timeout => StatusCode::GATEWAY_TIMEOUT,
                 CallError::TooLarge => StatusCode::PAYLOAD_TOO_LARGE,
+                CallError::Busy => StatusCode::TOO_MANY_REQUESTS,
                 CallError::App(_) => StatusCode::UNPROCESSABLE_ENTITY,
             };
             web::json_error(status, e)

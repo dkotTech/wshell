@@ -37,6 +37,7 @@ fuel_per_call = 2_000_000_000
 hook_timeout_ms = 500
 call_timeout_ms = 30_000
 bridge_events_per_s = 30
+bridge_max_pending = 16           # bridge calls of one app in flight; more get HTTP 429
 
 [exec]
 allowed_privileges = []

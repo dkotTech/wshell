@@ -1,8 +1,8 @@
 # wshell
 
 A shell for running isolated WASM applications with a web UI on Linux devices.
-Specification: "Specification: a shell for running WASM applications" (v0.1).
-Roadmap: [ROADMAP.md](ROADMAP.md).
+This README describes what wshell is and does; [ROADMAP.md](ROADMAP.md) what comes next.
+(The project started from a v0.1 specification draft; these two files replace it.)
 
 ## Contents
 
@@ -24,6 +24,17 @@ Roadmap: [ROADMAP.md](ROADMAP.md).
 | `apps/network` | Example: the network (`system.network`): devices, addresses, Wi-Fi networks, connecting |
 | `apps/stress` | Test application for checking limits (fuel, memory) |
 | `plugins/launcher` | Plugin: the device's home screen for the Renderer (list of apps, opening their UI) |
+
+## Requirements
+
+- **Linux 5.15 or newer** (an LTS release): cgroups v2, `cgroup.kill`, seccomp, user
+  namespaces. **6.12 or newer** for the full worker sandbox (Landlock TCP rules and scoping).
+  Older kernels or kernels without a feature run with less isolation or fewer limits, never
+  silently: shelld warns at start.
+- `shelld check-host` lists what this machine offers and what is missing;
+  `shelld check-sandbox` tries the worker sandbox itself.
+- For OS limits shelld needs a delegated cgroup (`Delegate=yes`): `scripts/dev-run.sh` does it
+  with `systemd-run --user --scope`.
 
 ## Build and run
 
@@ -267,7 +278,9 @@ browser ──HTTP/WS, loopback──▶ │  ├─ package manager: manifest a
   `CONFIG_CFS_BANDWIDTH` (e.g. the arm64 defconfig): the other limits still work.
 - **Bridge.** One-time token → `HttpOnly; SameSite=Strict` cookie; every request checks
   `Host` (DNS rebinding protection), `Origin` and the session bound to the app. All responses get
-  CSP, COOP, CORP, `nosniff`.
+  CSP, COOP, CORP, `nosniff`. Messages are JSON, limited in size (`http.max_message_kb`, both
+  ways), in events per second (`profile.bridge_events_per_s`) and in calls in flight per app
+  (`profile.bridge_max_pending`: more get HTTP 429 right away instead of queueing).
 - **States.** `running`: there is a visible UI tab; `suspended`: the UI is hidden or closed, events
   are not sent to the UI.
 
@@ -356,7 +369,7 @@ net.connect_wifi("wlan0", "Home", Some("secret"))?;   // manage: a new profile, 
 
   The demo runs shelld in the user's session, where NetworkManager allows these by default:
   the network app there changes the machine's real network (disconnecting asks twice).
-- Only NetworkManager for now; systemd-networkd (the spec's other option) is not supported.
+- Only NetworkManager for now; systemd-networkd is not supported.
 
 ## Programs with `main` (kind = "command")
 
@@ -491,14 +504,17 @@ is also available for stopped apps if cold start is allowed for them.
 
 ## Decisions made for the MVP
 
-- Bridge message format: JSON.
+- Bridge message format: JSON, not CBOR. The browser, `shell.js` and the WIT `bridge` (strings)
+  speak it natively and it reads in devtools; messages are small (`max_message_kb`), so a binary
+  format gains little. Binary data goes base64-encoded for now.
+- Minimum kernel: Linux 5.15; 6.12 for the full sandbox (see Requirements).
 - Package: a tar archive or a directory; signing comes after the MVP.
 - The `exec` permission has a `name` field (defaults to the binary's file name): the backend uses it to open
   the permission when there are several utilities.
 - `exec` privileges (`CAP_*`) are for now only checked against the `exec.allowed_privileges` list, but not
   granted: the privilege helper comes after the MVP. Shelld is expected to run as non-root.
 - An app can only be updated while stopped; migrations and rollback come after the MVP.
-- In addition to the spec, `shellctl` has `url`, `call`, `uninstall` and `dashboard`.
+- `shellctl` also has `url`, `call`, `uninstall` and `dashboard`.
 - On update, previously granted optional permissions are kept by default.
 
 ## MVP status
@@ -510,7 +526,7 @@ UI HTTP server with a subdomain per app, bridge and `shell.js`, a single resourc
 (namespaces, Landlock, seccomp), `system.services` (systemd over D-Bus) with the services example,
 `system.network` (NetworkManager) with the network example.
 
-Remaining in the MVP scope: closing the spec's open questions (bridge format, minimum kernel).
+The MVP scope is complete; open questions are in [ROADMAP.md](ROADMAP.md).
 
 ## License
 

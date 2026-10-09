@@ -51,7 +51,14 @@ but may put off contributors and integrators; decide on it before a public launc
   Left: the AOT compiler process (`shelld compile`) runs untrusted input outside it.
 - ✅ `system.services` (systemd over D-Bus) with `apps/services`.
 - ✅ `system.network` (NetworkManager over D-Bus) with `apps/network`. Left: systemd-networkd.
-- Close the spec's open questions: bridge format, minimum kernel.
+- ✅ Bridge format and minimum kernel: the bridge stays JSON (with a limit on calls in flight);
+  Linux 5.15 minimum, 6.12 for the full sandbox; `shelld check-host`.
+
+Open questions, to settle with real hardware:
+
+- Target boards (and so the kernels and architectures to test on).
+- Power targets of the `strict` profile: mW when idle, wakeups per second, and how to measure
+  them.
 
 ## Phase 1: a dependable single node
 
@@ -63,14 +70,14 @@ Goal: one machine can run production instead of docker-compose or k3s.
    - ✅ `[desired] file`: shelld applies it on start, on change and on `shellctl reconcile`.
    - Next: policy (`[policy.app]`) in the same file; reconcile status in the dashboard.
 2. **Distribution.** Packages as OCI artifacts (the wasm OCI format): `shellctl install
-   ghcr.io/…`. Signing with cosign/sigstore and trusted keys (from the spec).
+   ghcr.io/…`. Signing with cosign/sigstore and trusted keys.
 3. **Updates.** Start the new version next to the old one, wait for readiness, switch over;
-   rollback and a `storage` migration hook (from the spec).
+   rollback and a `storage` migration hook.
 4. **Health checks.** Readiness and liveness as a WIT export (`health.check`) with timeouts.
 5. **Config and secrets.** Standard `wasi:config` rather than an own interface; secrets
    encrypted at rest and handed out only by permission.
 6. **Jobs and cron.** `kind = "job"` and `schedule = "…"`; Shell coalesces timers, which also
-   serves the spec's power goals.
+   serves the power goals.
 7. **Backup and export** of `storage.private`.
 
 ## Phase 2: networking and services

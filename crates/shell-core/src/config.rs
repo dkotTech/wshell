@@ -168,6 +168,8 @@ pub struct Profile {
     /// Timeout of a single bridge call (including waiting for host calls).
     pub call_timeout_ms: u64,
     pub bridge_events_per_s: u32,
+    /// Bridge calls of one app in flight (waiting or running); more are refused right away.
+    pub bridge_max_pending: u32,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -301,6 +303,7 @@ impl Config {
         ensure!(p.memory_mb >= 4, "profile.memory_mb must be at least 4");
         ensure!(p.pids_max >= 1, "profile.pids_max must be at least 1");
         ensure!(p.fuel_per_call > 0, "profile.fuel_per_call must be greater than 0");
+        ensure!(p.bridge_max_pending >= 1, "profile.bridge_max_pending must be at least 1");
         ensure!(self.http.max_message_kb > 0, "http.max_message_kb must be greater than 0");
         ensure!(
             !self.dashboard.enabled || self.dashboard.port != self.http.port,

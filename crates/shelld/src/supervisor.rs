@@ -112,6 +112,8 @@ pub enum CallError {
     NotRunning,
     Timeout,
     TooLarge,
+    /// Too many calls of the app in flight (`bridge_max_pending`).
+    Busy,
     /// Cold start failed or is not allowed right now.
     StartFailed(String),
     App(String),
@@ -123,6 +125,7 @@ impl std::fmt::Display for CallError {
             CallError::NotRunning => f.write_str("app is not running"),
             CallError::Timeout => f.write_str("call timed out"),
             CallError::TooLarge => f.write_str("message too large"),
+            CallError::Busy => f.write_str("too many calls in flight"),
             CallError::StartFailed(e) => write!(f, "failed to start app: {e}"),
             CallError::App(e) => f.write_str(e),
         }
@@ -981,10 +984,17 @@ impl Supervisor {
         if payload.len() + method.len() > limit {
             return Err(CallError::TooLarge);
         }
-        worker.activity.touch();
         let call_id = worker.next_call.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = oneshot::channel();
-        worker.pending.lock().unwrap().insert(call_id, tx);
+        {
+            // The worker runs calls one by one: a UI that sends faster only grows the queue.
+            let mut pending = worker.pending.lock().unwrap();
+            if pending.len() >= self.cfg.profile.bridge_max_pending as usize {
+                return Err(CallError::Busy);
+            }
+            pending.insert(call_id, tx);
+        }
+        worker.activity.touch();
         worker.send(ToWorker::Call { id: call_id, method, payload });
         let timeout = Duration::from_millis(self.cfg.profile.call_timeout_ms);
         match tokio::time::timeout(timeout, rx).await {

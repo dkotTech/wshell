@@ -20,6 +20,7 @@ runtime_overhead_mb = 16
 pids_max = 8
 fuel_per_call = 500_000_000       # a single call is cut off sooner
 bridge_events_per_s = 5
+bridge_max_pending = 4            # a busy UI waits instead of queueing work
 
 [exec]
 max_concurrent = 1
