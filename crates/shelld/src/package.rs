@@ -3,6 +3,7 @@
 //! A package is a directory or a tar archive (`.pkg`) with `app.toml`, a WASM component and `ui/`.
 //! Package signing comes after the MVP.
 
+use shell_core::source::Source;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -94,9 +95,13 @@ impl Paths {
     pub fn staging(&self) -> PathBuf {
         self.root.join("staging")
     }
+    /// Blobs pulled from OCI registries, by digest.
+    pub fn registry_cache(&self) -> PathBuf {
+        self.root.join("registry")
+    }
 
     pub fn create(&self) -> Result<()> {
-        for d in ["apps", "data", "logs", "staging"] {
+        for d in ["apps", "data", "logs", "staging", "registry"] {
             fs::create_dir_all(self.root.join(d))?;
         }
         set_private(&self.root)?;
@@ -356,9 +361,10 @@ fn no_symlink(p: &Path) -> Result<bool> {
     Ok(fs::symlink_metadata(p).with_context(|| format!("{}", p.display()))?.is_file())
 }
 
-pub fn package_info(staged: &Staged, current: Option<&Installed>) -> PackageInfo {
+pub fn package_info(staged: &Staged, source: Source, current: Option<&Installed>) -> PackageInfo {
     let m = &staged.manifest;
     PackageInfo {
+        source,
         id: m.app.id.clone(),
         name: m.app.name.clone(),
         version: m.app.version.clone(),

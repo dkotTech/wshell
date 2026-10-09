@@ -4,6 +4,7 @@
 //! `shellctl dashboard`, then an `HttpOnly; SameSite=Strict` cookie. Mutating
 //! requests additionally check `Origin`.
 
+use shell_core::source::Source;
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::path::PathBuf;
@@ -242,7 +243,7 @@ async fn upload(State(d): St, headers: HeaderMap, body: Bytes) -> Response {
         });
         uploads.insert(upload.clone(), (path.clone(), now));
     }
-    match d.sup.inspect(path).await {
+    match d.sup.inspect(Source::Path(path)).await {
         Ok(package) => Json(json!({ "upload": upload, "package": package })).into_response(),
         Err(e) => {
             drop_upload(&d, &upload);
@@ -261,7 +262,7 @@ async fn install(State(d): St, Path(upload): Path<String>, Json(body): Json<Inst
     let Some(path) = d.uploads.lock().unwrap().get(&upload).map(|(p, _)| p.clone()) else {
         return web::json_error(StatusCode::NOT_FOUND, "upload not found or expired");
     };
-    let result = d.sup.install(path, body.grant_optional).await;
+    let result = d.sup.install(Source::Path(path), body.grant_optional).await;
     drop_upload(&d, &upload);
     match result {
         Ok((id, version)) => Json(json!({ "id": id, "version": version })).into_response(),

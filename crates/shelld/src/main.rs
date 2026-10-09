@@ -17,6 +17,7 @@ mod logs;
 #[cfg(feature = "metrics")]
 mod metrics;
 mod networkmanager;
+mod oci;
 mod package;
 mod process;
 mod sandbox;
@@ -124,6 +125,8 @@ async fn run(cfg: Config) -> Result<()> {
     }
     host::warn_at_start();
     let sup = supervisor::Supervisor::new(cfg)?;
+    let cache = sup.paths.registry_cache();
+    tokio::task::spawn_blocking(move || oci::gc(&cache));
 
     let control = tokio::spawn(control::serve(sup.clone()));
 

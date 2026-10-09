@@ -69,8 +69,11 @@ Goal: one machine can run production instead of docker-compose or k3s.
    - ✅ `shellctl apply [--prune] [-n] apps.toml`: client-side plan and apply (see README).
    - ✅ `[desired] file`: shelld applies it on start, on change and on `shellctl reconcile`.
    - Next: policy (`[policy.app]`) in the same file; reconcile status in the dashboard.
-2. **Distribution.** Packages as OCI artifacts (the wasm OCI format): `shellctl install
-   ghcr.io/…`. Signing with cosign/sigstore and trusted keys.
+2. **Distribution.** Packages as OCI artifacts.
+   - ✅ `shellctl install oci://ghcr.io/…` and `oci://` in the desired-state file: pulled by
+     shelld, pinned to a digest, cached; published with `oras push` (see README).
+   - Next: signatures (cosign, trusted keys in the config, `[registry] require_signature`);
+     then logins for private registries.
 3. **Updates.** Start the new version next to the old one, wait for readiness, switch over;
    rollback and a `storage` migration hook.
 4. **Health checks.** Readiness and liveness as a WIT export (`health.check`) with timeouts.
@@ -130,5 +133,5 @@ No own consensus up front; in steps:
 
 ## Next
 
-OCI distribution with signing (phase 1, item 2): the desired-state file then names packages
-in a registry instead of local paths.
+Package signatures (phase 1, item 2): shelld installs from a registry only what a trusted key
+signed (cosign).

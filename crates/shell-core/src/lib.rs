@@ -8,3 +8,4 @@ pub mod desired;
 pub mod exec_template;
 pub mod manifest;
 pub mod metrics;
+pub mod source;

@@ -23,6 +23,7 @@ pub struct Config {
     pub cgroups: CgroupsSection,
     pub sandbox: SandboxSection,
     pub services: ServicesSection,
+    pub registry: RegistrySection,
     pub lifecycle: LifecycleSection,
     #[serde(default)]
     pub control: ControlSection,
@@ -215,6 +216,16 @@ pub struct ServicesSection {
     pub bus: Bus,
 }
 
+/// OCI registries packages are pulled from (`oci://…`).
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct RegistrySection {
+    /// Registries (`host:port`) reached over plain HTTP; `localhost` always is.
+    pub insecure: Vec<String>,
+    /// Largest package (the `.pkg` layer) to download.
+    pub max_package_mb: u32,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Bus {
@@ -304,6 +315,7 @@ impl Config {
         ensure!(p.pids_max >= 1, "profile.pids_max must be at least 1");
         ensure!(p.fuel_per_call > 0, "profile.fuel_per_call must be greater than 0");
         ensure!(p.bridge_max_pending >= 1, "profile.bridge_max_pending must be at least 1");
+        ensure!(self.registry.max_package_mb > 0, "registry.max_package_mb must be greater than 0");
         ensure!(self.http.max_message_kb > 0, "http.max_message_kb must be greater than 0");
         ensure!(
             !self.dashboard.enabled || self.dashboard.port != self.http.port,

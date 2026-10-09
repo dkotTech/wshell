@@ -11,6 +11,7 @@ use anyhow::{Context, Result, bail};
 use shell_core::config::{CgroupMode, Config};
 use shell_core::control::{AppState, AppStatus, Metrics, PackageInfo, StopReason};
 use shell_core::manifest::BackendKind;
+use shell_core::source::Source;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWriteExt, BufReader};
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use wasmtime::Engine;
@@ -39,6 +40,8 @@ pub struct Supervisor {
     pub engine: Engine,
     pub audit: Audit,
     pub http_client: reqwest::Client,
+    /// For OCI registries: follows redirects to their CDNs, longer timeouts.
+    registry_client: reqwest::Client,
     pub(crate) cgroups: Option<Cgroups>,
     apps: Mutex<BTreeMap<String, App>>,
     /// One-time token → access scope and expiry.
@@ -270,6 +273,7 @@ impl Supervisor {
             paths,
             engine,
             http_client,
+            registry_client: crate::oci::client()?,
             cgroups,
             apps: Mutex::new(apps),
             tokens: Mutex::default(),
@@ -428,15 +432,33 @@ impl Supervisor {
         [Some(profile), policy, installed.manifest.resources.memory_mb].into_iter().flatten().min().unwrap_or(profile)
     }
 
-    pub async fn inspect(self: &Arc<Self>, path: PathBuf) -> Result<PackageInfo> {
+    /// A local package file or directory for the source, and the source pinned to what was
+    /// read: a registry package is pulled (or taken from the cache).
+    pub async fn fetch(&self, source: &Source) -> Result<(PathBuf, Source)> {
+        match source {
+            Source::Path(p) => Ok((p.clone(), source.clone())),
+            Source::Oci(r) => {
+                let cache = self.paths.registry_cache();
+                let pulled = crate::oci::pull(&self.registry_client, &self.cfg.registry, &cache, r).await?;
+                if r.digest.is_none() {
+                    tracing::info!("{r} is {}", pulled.pinned);
+                }
+                Ok((pulled.path, Source::Oci(pulled.pinned)))
+            }
+        }
+    }
+
+    pub async fn inspect(self: &Arc<Self>, source: Source) -> Result<PackageInfo> {
+        let (path, source) = self.fetch(&source).await?;
         let this = self.clone();
         let staged = tokio::task::spawn_blocking(move || package::stage(&path, &this.paths, &this.cfg, &this.engine))
             .await??;
         let current = self.installed(&staged.manifest.app.id);
-        Ok(package::package_info(&staged, current.as_deref()))
+        Ok(package::package_info(&staged, source, current.as_deref()))
     }
 
-    pub async fn install(self: &Arc<Self>, path: PathBuf, grant_optional: Vec<String>) -> Result<(String, String)> {
+    pub async fn install(self: &Arc<Self>, source: Source, grant_optional: Vec<String>) -> Result<(String, String)> {
+        let (path, source) = self.fetch(&source).await?;
         let _guard = self.install_lock.lock().await;
         let this = self.clone();
         let installed = tokio::task::spawn_blocking(move || -> Result<Installed> {
@@ -465,7 +487,11 @@ impl Supervisor {
             apps.insert(id.clone(), app);
             log
         };
-        log.write("shell", &format!("installed version {version}"));
+        log.write("shell", &format!("installed version {version} from {source}"));
+        if let Source::Oci(_) = source {
+            // Which artifact exactly: the digest, not a tag that may move.
+            self.audit.record(&id, "source", &source.to_string());
+        }
         Ok((id, version))
     }
 

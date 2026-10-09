@@ -5,14 +5,16 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 use crate::manifest::{BackendKind, IdleMode, LifecycleHints, Priority};
+use crate::source::Source;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "cmd", rename_all = "kebab-case")]
 pub enum Request {
     /// Check a package and show its permissions before installing.
-    Inspect { path: PathBuf },
+    Inspect { source: Source },
     /// Install a package. `grant_optional`: keys of optional permissions granted by the user.
-    Install { path: PathBuf, grant_optional: Vec<String> },
+    /// Install the `source` that `Inspect` returned: a registry tag may move in between.
+    Install { source: Source, grant_optional: Vec<String> },
     Uninstall { id: String },
     List,
     Start { id: String },
@@ -119,6 +121,8 @@ pub struct ReconcileReport {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PackageInfo {
+    /// For a registry: pinned to the digest that was read.
+    pub source: Source,
     pub id: String,
     pub name: String,
     pub version: String,

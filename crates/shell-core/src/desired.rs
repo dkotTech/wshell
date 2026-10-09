@@ -4,13 +4,14 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use anyhow::{Context, Result, ensure};
 use serde::Deserialize;
 
 use crate::control::{AppState, AppStatus};
 use crate::manifest::Manifest;
+use crate::source::{OciRef, Source};
 
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -22,8 +23,9 @@ pub struct DesiredState {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DesiredApp {
-    /// A `.pkg` archive or a package directory; relative to the state file.
-    pub package: PathBuf,
+    /// A `.pkg` archive or a package directory, relative to the state file, or a registry
+    /// reference (`oci://ghcr.io/acme/ping:1.0`).
+    pub package: Source,
     /// Optional permissions to grant; the rest stay denied. Required ones come with the install.
     #[serde(default)]
     pub grant: Vec<String>,
@@ -44,8 +46,10 @@ impl DesiredState {
         let mut s: DesiredState = toml::from_str(text)?;
         for (id, app) in &mut s.apps {
             crate::manifest::validate_app_id(id)?;
-            if app.package.is_relative() {
-                app.package = base.join(&app.package);
+            if let Source::Path(p) = &app.package
+                && p.is_relative()
+            {
+                app.package = Source::Path(base.join(p));
             }
         }
         Ok(s)
@@ -57,14 +61,28 @@ impl DesiredState {
         Self::parse(&text, base).with_context(|| format!("{}", path.display()))
     }
 
-    /// Makes package paths absolute (shelld opens them from its own working directory) and
-    /// reads what every package declares.
-    pub fn read_packages(&mut self) -> Result<BTreeMap<String, Package>> {
+    /// Reads what every package declares. Package paths become absolute (shelld opens them
+    /// from its own working directory); `oci` reads a registry package and returns its
+    /// reference pinned to the digest it read, so the install gets the same artifact.
+    pub fn read_packages(
+        &mut self,
+        mut oci: impl FnMut(&OciRef) -> Result<(Package, OciRef)>,
+    ) -> Result<BTreeMap<String, Package>> {
         let mut packages = BTreeMap::new();
         for (id, app) in &mut self.apps {
-            app.package = std::fs::canonicalize(&app.package)
-                .with_context(|| format!("{id}: package {}", app.package.display()))?;
-            let pkg = Package::read(&app.package).with_context(|| format!("{id}: {}", app.package.display()))?;
+            let pkg = match &app.package {
+                Source::Path(p) => {
+                    let p = std::fs::canonicalize(p).with_context(|| format!("{id}: package {}", p.display()))?;
+                    let pkg = Package::read(&p).with_context(|| format!("{id}: {}", p.display()))?;
+                    app.package = Source::Path(p);
+                    pkg
+                }
+                Source::Oci(r) => {
+                    let (pkg, pinned) = oci(r).with_context(|| format!("{id}: {r}"))?;
+                    app.package = Source::Oci(pinned);
+                    pkg
+                }
+            };
             packages.insert(id.clone(), pkg);
         }
         Ok(packages)
@@ -129,7 +147,7 @@ impl From<&AppStatus> for Current {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Step {
     Stop { id: String },
-    Install { id: String, package: PathBuf, grant: Vec<String>, from: Option<String>, version: String },
+    Install { id: String, package: Source, grant: Vec<String>, from: Option<String>, version: String },
     Start { id: String },
     Uninstall { id: String },
 }
@@ -186,7 +204,7 @@ pub fn plan(
 
     for (id, app) in &desired.apps {
         let pkg = packages.get(id).with_context(|| format!("{id}: package not read"))?;
-        ensure!(&pkg.id == id, "{id}: {} contains app {}", app.package.display(), pkg.id);
+        ensure!(&pkg.id == id, "{id}: {} contains app {}", app.package, pkg.id);
         for key in &app.grant {
             let optional = pkg.permissions.iter().find(|(k, _)| k == key).map(|(_, o)| *o);
             ensure!(optional.is_some(), "{id}: permission {key} is not declared in the package");
@@ -270,8 +288,8 @@ mod tests {
     #[test]
     fn parses_and_resolves_paths() {
         let s = DesiredState::parse(STATE, Path::new("/etc/wshell")).unwrap();
-        assert_eq!(s.apps["org.example.ping"].package, Path::new("/etc/wshell/ping.pkg"));
-        assert_eq!(s.apps["org.example.todo"].package, Path::new("/abs/todo.pkg"));
+        assert_eq!(s.apps["org.example.ping"].package, Source::Path("/etc/wshell/ping.pkg".into()));
+        assert_eq!(s.apps["org.example.todo"].package, Source::Path("/abs/todo.pkg".into()));
         assert_eq!(s.apps["org.example.ping"].state, Some(RunState::Running));
         assert_eq!(s.apps["org.example.todo"].state, None);
         assert!(DesiredState::parse("[app.Bad]\npackage = \"x\"", Path::new("/")).is_err());

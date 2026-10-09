@@ -56,6 +56,11 @@ mode = "auto"                     # auto: what the kernel supports | off | requi
 # change) | user (the units of the user shelld runs as: development, demos)
 bus = "system"
 
+[registry]
+# Packages from OCI registries (shellctl install oci://ghcr.io/acme/ping:1.0)
+insecure = []                     # registries ("host:port") over plain HTTP; localhost always is
+max_package_mb = 256
+
 [lifecycle]
 start_on_demand = true            # start a stopped app when its UI is opened or on a call
 idle_stop_after_s = 0             # stop when idle; 0 disables it

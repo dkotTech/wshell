@@ -2,13 +2,14 @@
 //! file changes and on `shellctl reconcile`. Not continuously: an idle stop, an eviction or a
 //! manual command holds until the next pass.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
 use shell_core::control::{ReconcileReport, StopReason};
-use shell_core::desired::{self, Current, DesiredState, Step};
+use shell_core::desired::{self, Current, DesiredState, Package, Step};
+use shell_core::source::Source;
 
 use crate::cgroup::EventsWatch;
 use crate::supervisor::Supervisor;
@@ -22,9 +23,21 @@ impl Supervisor {
         let file = self.cfg.desired.file.clone().context("no desired-state file: set [desired] file")?;
         let _guard = self.reconcile_lock.lock().await;
         let path = file.clone();
+        let desired = tokio::task::spawn_blocking(move || DesiredState::load(&path)).await??;
+        // Registry packages first (async), then everything is read from local files.
+        let mut pulled = HashMap::new();
+        for app in desired.apps.values() {
+            if let Source::Oci(r) = &app.package {
+                let (path, Source::Oci(pinned)) = self.fetch(&app.package).await? else { unreachable!() };
+                pulled.insert(r.to_string(), (path, pinned));
+            }
+        }
         let (desired, packages) = tokio::task::spawn_blocking(move || {
-            let mut desired = DesiredState::load(&path)?;
-            let packages = desired.read_packages()?;
+            let mut desired = desired;
+            let packages = desired.read_packages(|r| {
+                let (path, pinned) = pulled.remove(&r.to_string()).context("not pulled")?;
+                Ok((Package::read(&path)?, pinned))
+            })?;
             anyhow::Ok((desired, packages))
         })
         .await??;

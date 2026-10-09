@@ -70,7 +70,7 @@ file and kept in Git:
 ```toml
 # apps.toml
 [app."org.wshell.ping"]
-package = "target/apps/ping.pkg"   # .pkg or a package directory; relative to this file
+package = "target/apps/ping.pkg"   # .pkg or a package directory (relative to this file), or oci://…
 grant = ["exec:tracepath"]         # optional permissions; the rest stay denied
 state = "running"                  # running | stopped; absent: not managed
 
@@ -109,6 +109,36 @@ prune = false                    # also uninstall apps the file does not list
   the other apps go on.
 - Not continuous: an idle stop, an eviction or a manual `shellctl stop` holds until the next pass,
   so `state = "running"` means "running after each pass", not "always".
+
+## Packages in a registry (`oci://`)
+
+A package can live in any OCI registry (ghcr.io, Docker Hub, Harbor, a self-hosted `registry`)
+as an artifact with one layer, the `.pkg` archive. Publishing is plain `oras`:
+
+```sh
+oras push ghcr.io/acme/ping:1.0 --artifact-type application/vnd.wshell.package.v1 \
+    ping.pkg:application/vnd.wshell.package.v1.tar
+oras tag ghcr.io/acme/ping:1.0 stable
+```
+
+```sh
+shellctl install oci://ghcr.io/acme/ping:1.0
+shellctl install oci://ghcr.io/acme/ping@sha256:…   # exactly this artifact
+```
+
+```toml
+[app."org.acme.ping"]
+package = "oci://ghcr.io/acme/ping:stable"   # a new version under the tag is installed on the next pass
+```
+
+- shelld pulls, not `shellctl`: the manifest and the layer, both checked against their sha256
+  digests. The install takes the artifact the permissions were shown for, even if the tag has
+  moved in between; the audit log records the exact `…@sha256:` reference.
+- Pulled blobs are cached by digest under `<data_dir>/registry` and removed after a month
+  unused: a desired-state file naming a tag only re-reads its manifest on each pass.
+- The registry is always written out (`docker.io/…`, not `…`). HTTPS, except `localhost` and
+  `[registry] insecure = ["host:port"]`; packages up to `[registry] max_package_mb`.
+- Not yet: private registries (logins) and signatures (see ROADMAP).
 
 ## Dashboard
 

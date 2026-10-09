@@ -108,9 +108,9 @@ async fn client(sup: Arc<Supervisor>, stream: UnixStream, allow: Allow) -> Resul
 
 async fn handle(sup: &Arc<Supervisor>, req: Request) -> Result<Response> {
     Ok(match req {
-        Request::Inspect { path } => Response::Package(sup.inspect(path).await?),
-        Request::Install { path, grant_optional } => {
-            let (id, version) = sup.install(path, grant_optional).await?;
+        Request::Inspect { source } => Response::Package(sup.inspect(source).await?),
+        Request::Install { source, grant_optional } => {
+            let (id, version) = sup.install(source, grant_optional).await?;
             Response::Installed { id, version }
         }
         Request::Uninstall { id } => {

@@ -9,7 +9,8 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use shell_core::control::{PackageInfo, Request, Response};
-use shell_core::desired::{self, Current, DesiredState, Step};
+use shell_core::desired::{self, Current, DesiredState, Package, Step};
+use shell_core::source::Source;
 
 #[derive(Parser)]
 #[command(version, about = "Manage the wshell shell")]
@@ -23,9 +24,10 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
-    /// Install or update an app from a directory or a .pkg archive.
+    /// Install or update an app from a directory, a .pkg archive or a registry
+    /// (oci://ghcr.io/acme/ping:1.0).
     Install {
-        path: PathBuf,
+        package: String,
         /// Do not ask: accept the required permissions.
         #[arg(short, long)]
         yes: bool,
@@ -147,9 +149,13 @@ fn run() -> Result<()> {
     let cli = Cli::parse();
     let mut conn = Conn::open(cli.socket)?;
     match cli.command {
-        Cmd::Install { path, yes, grant, grant_all } => {
-            let path = std::fs::canonicalize(&path).with_context(|| format!("{}", path.display()))?;
-            install(&mut conn, path, yes, grant, grant_all)
+        Cmd::Install { package, yes, grant, grant_all } => {
+            let source = match package.parse()? {
+                // shelld opens it from its own working directory.
+                Source::Path(p) => Source::Path(std::fs::canonicalize(&p).with_context(|| format!("{}", p.display()))?),
+                oci => oci,
+            };
+            install(&mut conn, source, yes, grant, grant_all)
         }
         Cmd::Apply { file, prune, dry_run } => apply(&mut conn, &file, prune, dry_run),
         Cmd::Reconcile => {
@@ -222,8 +228,8 @@ fn run() -> Result<()> {
     }
 }
 
-fn install(conn: &mut Conn, path: PathBuf, yes: bool, grant: Vec<String>, grant_all: bool) -> Result<()> {
-    let Response::Package(info) = conn.request(&Request::Inspect { path: path.clone() })? else {
+fn install(conn: &mut Conn, source: Source, yes: bool, grant: Vec<String>, grant_all: bool) -> Result<()> {
+    let Response::Package(info) = conn.request(&Request::Inspect { source })? else {
         bail!("unexpected response from shelld");
     };
     print_package(&info);
@@ -262,7 +268,8 @@ fn install(conn: &mut Conn, path: PathBuf, yes: bool, grant: Vec<String>, grant_
         }
     }
 
-    match conn.request(&Request::Install { path, grant_optional: granted })? {
+    // What was shown, even if the tag has moved since.
+    match conn.request(&Request::Install { source: info.source, grant_optional: granted })? {
         Response::Installed { id, version } => println!("installed: {id} {version}"),
         _ => bail!("unexpected response from shelld"),
     }
@@ -273,7 +280,15 @@ fn install(conn: &mut Conn, path: PathBuf, yes: bool, grant: Vec<String>, grant_
 /// there are no questions, unlike `install`.
 fn apply(conn: &mut Conn, file: &Path, prune: bool, dry_run: bool) -> Result<()> {
     let mut desired = DesiredState::load(file)?;
-    let packages = desired.read_packages()?;
+    // Registry packages are read by shelld: it pulls them and keeps them for the install.
+    let packages = desired.read_packages(|r| {
+        let Response::Package(info) = conn.request(&Request::Inspect { source: Source::Oci(r.clone()) })? else {
+            bail!("unexpected response from shelld");
+        };
+        let Source::Oci(pinned) = info.source else { bail!("unexpected response from shelld") };
+        let permissions = info.permissions.iter().map(|p| (p.key.clone(), p.optional)).collect();
+        Ok((Package { id: info.id, version: info.version, permissions }, pinned))
+    })?;
     let Response::Apps { apps } = conn.request(&Request::List)? else {
         bail!("unexpected response from shelld");
     };
@@ -298,7 +313,7 @@ fn apply(conn: &mut Conn, file: &Path, prune: bool, dry_run: bool) -> Result<()>
             Step::Start { id } => Request::Start { id: id.clone() },
             Step::Uninstall { id } => Request::Uninstall { id: id.clone() },
             Step::Install { package, grant, .. } => {
-                Request::Install { path: package.clone(), grant_optional: grant.clone() }
+                Request::Install { source: package.clone(), grant_optional: grant.clone() }
             }
         };
         conn.request(&req).with_context(|| format!("{step}"))?;
@@ -328,6 +343,9 @@ fn show_url(label: &str, url: &str, open: bool) {
 }
 
 fn print_package(info: &PackageInfo) {
+    if let Source::Oci(r) = &info.source {
+        println!("from {r}");
+    }
     match &info.installed_version {
         Some(v) => println!("{} ({}) {} → {}", info.name, info.id, v, info.version),
         None => println!("{} ({}) {}", info.name, info.id, info.version),
