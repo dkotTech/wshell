@@ -47,6 +47,8 @@ pub struct Supervisor {
     sessions: Mutex<HashMap<String, Scope>>,
     next_job: AtomicU64,
     install_lock: tokio::sync::Mutex<()>,
+    /// One pass over the desired-state file at a time.
+    pub reconcile_lock: tokio::sync::Mutex<()>,
     #[cfg_attr(not(any(feature = "dashboard", feature = "metrics")), allow(dead_code))]
     started_at: u64,
     /// Wakes those waiting for a start or stop to finish (cold start).
@@ -267,6 +269,7 @@ impl Supervisor {
             sessions: Mutex::default(),
             next_job: AtomicU64::new(1),
             install_lock: tokio::sync::Mutex::new(()),
+            reconcile_lock: tokio::sync::Mutex::new(()),
             started_at: unix_now(),
             state_changed: tokio::sync::Notify::new(),
         }))

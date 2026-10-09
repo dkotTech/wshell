@@ -9,6 +9,9 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, ensure};
 use serde::Deserialize;
 
+use crate::control::{AppState, AppStatus};
+use crate::manifest::Manifest;
+
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DesiredState {
@@ -53,6 +56,19 @@ impl DesiredState {
         let base = path.parent().unwrap_or(Path::new("."));
         Self::parse(&text, base).with_context(|| format!("{}", path.display()))
     }
+
+    /// Makes package paths absolute (shelld opens them from its own working directory) and
+    /// reads what every package declares.
+    pub fn read_packages(&mut self) -> Result<BTreeMap<String, Package>> {
+        let mut packages = BTreeMap::new();
+        for (id, app) in &mut self.apps {
+            app.package = std::fs::canonicalize(&app.package)
+                .with_context(|| format!("{id}: package {}", app.package.display()))?;
+            let pkg = Package::read(&app.package).with_context(|| format!("{id}: {}", app.package.display()))?;
+            packages.insert(id.clone(), pkg);
+        }
+        Ok(packages)
+    }
 }
 
 /// What a package declares, read from its `app.toml`.
@@ -64,6 +80,32 @@ pub struct Package {
     pub permissions: Vec<(String, bool)>,
 }
 
+impl Package {
+    /// From `app.toml` of a package directory or a `.pkg` archive, without unpacking the rest.
+    pub fn read(path: &Path) -> Result<Self> {
+        let text = if path.is_dir() {
+            std::fs::read_to_string(path.join("app.toml"))?
+        } else {
+            use std::io::Read;
+            let mut ar = tar::Archive::new(std::fs::File::open(path)?);
+            let mut found = None;
+            for entry in ar.entries()? {
+                let mut entry = entry?;
+                if entry.path()?.components().eq(Path::new("app.toml").components()) {
+                    let mut text = String::new();
+                    entry.read_to_string(&mut text)?;
+                    found = Some(text);
+                    break;
+                }
+            }
+            found.context("no app.toml in the package")?
+        };
+        let m = Manifest::parse(&text)?;
+        let permissions = m.permissions.iter().map(|p| (p.key(), p.optional)).collect();
+        Ok(Package { id: m.app.id, version: m.app.version, permissions })
+    }
+}
+
 /// An installed app as far as the plan is concerned.
 #[derive(Debug, Clone)]
 pub struct Current {
@@ -73,12 +115,31 @@ pub struct Current {
     pub granted: BTreeSet<String>,
 }
 
+impl From<&AppStatus> for Current {
+    fn from(a: &AppStatus) -> Self {
+        Current {
+            id: a.id.clone(),
+            version: a.version.clone(),
+            running: matches!(a.state, AppState::Starting | AppState::Running | AppState::Suspended),
+            granted: a.permissions.iter().filter(|p| p.granted).map(|p| p.key.clone()).collect(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Step {
     Stop { id: String },
     Install { id: String, package: PathBuf, grant: Vec<String>, from: Option<String>, version: String },
     Start { id: String },
     Uninstall { id: String },
+}
+
+impl Step {
+    pub fn id(&self) -> &str {
+        match self {
+            Step::Stop { id } | Step::Install { id, .. } | Step::Start { id } | Step::Uninstall { id } => id,
+        }
+    }
 }
 
 impl fmt::Display for Step {

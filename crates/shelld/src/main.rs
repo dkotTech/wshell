@@ -7,6 +7,7 @@ mod cgroup;
 mod control;
 #[cfg(feature = "dashboard")]
 mod dashboard;
+mod desired;
 mod engine;
 mod hostsvc;
 mod ipc;
@@ -137,6 +138,7 @@ async fn run(cfg: Config) -> Result<()> {
 
     sup.spawn_memory_guard()?;
     sup.autostart().await;
+    sup.spawn_desired();
 
     let mut term = signal(SignalKind::terminate())?;
     let mut int = signal(SignalKind::interrupt())?;

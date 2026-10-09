@@ -8,6 +8,7 @@ license.workspace = true
 anyhow.workspace = true
 serde.workspace = true
 toml.workspace = true
+tar = "0.4"
 
 [dev-dependencies]
 serde_json.workspace = true

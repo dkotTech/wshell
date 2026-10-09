@@ -79,8 +79,23 @@ shellctl apply --prune apps.toml   # also uninstall apps the file does not list 
 - **Updates** stop a running app, install, and start it again unless `state = "stopped"`.
 - Unlisted apps are only reported unless `--prune` is given. The first error stops `apply`;
   the steps before it stay applied.
-- `apply` is client-side for now: it compares the file with `shellctl list`, reading only
-  `app.toml` from the packages. shelld does not keep the file or reconcile on its own yet.
+- `apply` compares the file with `shellctl list`, reading only `app.toml` from the packages.
+
+**Kept by shelld.** With the file in the config, shelld applies it itself:
+
+```toml
+[desired]
+file = "/etc/wshell/apps.toml"   # absolute
+prune = false                    # also uninstall apps the file does not list
+```
+
+- On start, when the file changes (inotify on its directory, so `git pull`, `sed -i` and editors
+  that replace the file all count) and on `shellctl reconcile`, which prints what was done.
+- A broken file (invalid TOML, a missing package, a wrong `grant`) changes nothing; the error
+  goes to the log and to `shellctl reconcile`. A step that fails skips that app's remaining steps;
+  the other apps go on.
+- Not continuous: an idle stop, an eviction or a manual `shellctl stop` holds until the next pass,
+  so `state = "running"` means "running after each pass", not "always".
 
 ## Dashboard
 

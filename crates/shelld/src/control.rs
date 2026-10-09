@@ -136,6 +136,7 @@ async fn handle(sup: &Arc<Supervisor>, req: Request) -> Result<Response> {
             Response::CallResult { result }
         }
         Request::DashboardUrl => Response::Url { url: sup.issue_dashboard_url()? },
+        Request::Reconcile => Response::Reconciled(sup.reconcile().await?),
         Request::Logs { .. } => unreachable!("handled in the client"),
     })
 }

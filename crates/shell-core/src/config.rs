@@ -26,6 +26,21 @@ pub struct Config {
     pub control: ControlSection,
     #[serde(default)]
     pub policy: PolicySection,
+    #[serde(default)]
+    pub desired: DesiredSection,
+}
+
+/// The device's desired state (`shell_core::desired`): shelld brings the installed apps to this
+/// file on start, when it changes and on `shellctl reconcile`.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct DesiredSection {
+    /// Absolute path; absent: the apps are managed by commands only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file: Option<PathBuf>,
+    /// Uninstall apps (with their data) that the file does not list.
+    #[serde(default)]
+    pub prune: bool,
 }
 
 /// Control sockets besides `control.sock`.
@@ -235,6 +250,9 @@ impl Config {
         );
         for id in self.policy.app.keys() {
             crate::manifest::validate_app_id(id).with_context(|| format!("policy.app.{id}"))?;
+        }
+        if let Some(file) = &self.desired.file {
+            ensure!(file.is_absolute(), "desired.file must be an absolute path");
         }
         let m = &self.metrics;
         ensure!(

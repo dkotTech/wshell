@@ -58,7 +58,8 @@ Goal: one machine can run production instead of docker-compose or k3s.
 1. **Declarative state.** A desired-state file; shelld reconciles the node to it. The base for
    GitOps and everything after.
    - ✅ `shellctl apply [--prune] [-n] apps.toml`: client-side plan and apply (see README).
-   - Next: shelld keeps the file and reconciles on start and on change; policy in the same file.
+   - ✅ `[desired] file`: shelld applies it on start, on change and on `shellctl reconcile`.
+   - Next: policy (`[policy.app]`) in the same file; reconcile status in the dashboard.
 2. **Distribution.** Packages as OCI artifacts (the wasm OCI format): `shellctl install
    ghcr.io/…`. Signing with cosign/sigstore and trusted keys (from the spec).
 3. **Updates.** Start the new version next to the old one, wait for readiness, switch over;
@@ -120,5 +121,5 @@ No own consensus up front; in steps:
 
 ## Next
 
-Server-side reconcile (phase 1, item 1), then OCI distribution with signing:
-most of the rest builds on these two.
+OCI distribution with signing (phase 1, item 2): the desired-state file then names packages
+in a registry instead of local paths.

@@ -100,7 +100,7 @@ impl Cgroups {
 
     /// Subscription to `apps/memory.events` changes via inotify.
     pub fn watch_apps_memory_events(&self) -> Result<EventsWatch> {
-        EventsWatch::new(&self.apps.join("memory.events"))
+        EventsWatch::new(&self.apps.join("memory.events"), rustix::fs::inotify::WatchFlags::MODIFY)
     }
 
     /// Creates an app cgroup with limits.
@@ -181,17 +181,17 @@ impl AppCgroup {
     }
 }
 
-/// Changes of a cgroup file (e.g. `memory.events`): the kernel sends `IN_MODIFY`
-/// on every new event, so waiting requires no polling.
+/// Changes of a file or directory via inotify, e.g. of a cgroup's `memory.events`: the kernel
+/// sends `IN_MODIFY` on every new event, so waiting requires no polling.
 pub struct EventsWatch {
     fd: tokio::io::unix::AsyncFd<OwnedFd>,
 }
 
 impl EventsWatch {
-    fn new(path: &Path) -> Result<Self> {
+    pub fn new(path: &Path, flags: rustix::fs::inotify::WatchFlags) -> Result<Self> {
         use rustix::fs::inotify;
         let fd = inotify::init(inotify::CreateFlags::NONBLOCK | inotify::CreateFlags::CLOEXEC).context("inotify_init1")?;
-        inotify::add_watch(&fd, path, inotify::WatchFlags::MODIFY).with_context(|| format!("inotify {}", path.display()))?;
+        inotify::add_watch(&fd, path, flags).with_context(|| format!("inotify {}", path.display()))?;
         Ok(EventsWatch { fd: tokio::io::unix::AsyncFd::new(fd)? })
     }
 
@@ -206,6 +206,12 @@ impl EventsWatch {
                 Err(e) => return Err(e.into()),
             }
         }
+    }
+
+    /// Drops the events already queued, without waiting.
+    pub fn drain(&mut self) {
+        let mut buf = [0u8; 1024];
+        while rustix::io::read(self.fd.get_ref(), &mut buf).is_ok_and(|n| n > 0) {}
     }
 }
 

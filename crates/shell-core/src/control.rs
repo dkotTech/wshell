@@ -29,6 +29,8 @@ pub enum Request {
     Call { id: String, method: String, payload: String },
     /// One-time dashboard URL.
     DashboardUrl,
+    /// Bring the installed apps to the desired-state file now (`[desired] file`).
+    Reconcile,
 }
 
 impl Request {
@@ -45,6 +47,7 @@ impl Request {
             Request::Logs { .. } => "logs",
             Request::Call { .. } => "call",
             Request::DashboardUrl => "dashboard-url",
+            Request::Reconcile => "reconcile",
         }
     }
 
@@ -71,7 +74,7 @@ impl Request {
 }
 
 const REQUEST_NAMES: &[&str] =
-    &["inspect", "install", "uninstall", "list", "start", "stop", "url", "logs", "call", "dashboard-url"];
+    &["inspect", "install", "uninstall", "list", "start", "stop", "url", "logs", "call", "dashboard-url", "reconcile"];
 
 /// Validates an extra socket's rule.
 pub fn check_rule(rule: &str) -> anyhow::Result<()> {
@@ -99,6 +102,19 @@ pub enum Response {
     Log { line: String },
     /// Backend response (JSON).
     CallResult { result: String },
+    Reconciled(ReconcileReport),
+}
+
+/// What a pass over the desired-state file did.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ReconcileReport {
+    pub file: PathBuf,
+    /// Steps done, as `desired::Step` prints them.
+    pub done: Vec<String>,
+    /// Failed steps; the app's remaining steps are skipped, the other apps go on.
+    pub errors: Vec<String>,
+    /// Installed but not in the file, kept without `prune`.
+    pub unlisted: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

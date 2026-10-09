@@ -59,6 +59,13 @@ memory_high_mb = 0                # memory budget of all apps; 0 disables evicti
 # mode = 0o660                      # the Renderer runs as another user in Shell's group
 # allow = ["url:org.wshell.launcher"]   # one-time links to the launcher plugin, nothing else
 
+# Desired state: the apps, their packages, optional permissions and run state, in one file
+# (format: README, "Desired state"). shelld applies it on start, when it changes and on
+# `shellctl reconcile`.
+# [desired]
+# file = "/etc/wshell/apps.toml"
+# prune = false                     # also uninstall apps (with their data) the file does not list
+
 # [policy.app."com.example.weather"]
 # autostart = true
 # memory_mb = 32
