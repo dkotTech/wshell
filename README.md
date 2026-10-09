@@ -222,6 +222,21 @@ browser ──HTTP/WS, loopback──▶ │  ├─ package manager: manifest a
   supervisor, which re-checks them against the granted permissions. The worker has no network. `exec` utilities
   are launched by the supervisor via `shelld exec-helper`: the helper enters the app's cgroup, sets
   `NO_NEW_PRIVS` and `PDEATHSIG` and replaces itself with the utility.
+- **Worker sandbox.** In case a guest escapes Wasmtime, the worker process is confined by the
+  kernel too (`[sandbox] mode = "auto"`), set up at its start before any thread:
+  - *namespaces*: its own user namespace (no capabilities outside it, even under a root
+    shelld), IPC and, without `net.listen`, an empty network;
+  - *Landlock*: files only for reading and only in the app's package directory; TCP bind only on
+    the `net.listen` ports, no connect; no signals or abstract UNIX sockets outside the sandbox;
+  - *seccomp*: `EPERM` for what a worker never needs: exec, ptrace, mount, bpf, kernel modules,
+    io_uring, new namespaces, signals to other processes, outgoing connections, non-IP sockets.
+
+  `auto` applies what the kernel supports and writes the rest to the app log (`sandbox: not
+  applied: …`), `required` does not start a worker without every layer, `off` disables it.
+  `shelld check-sandbox` shows what this kernel supports and tries what the sandbox forbids.
+  Full Landlock needs Linux 6.12 (files from 5.13, TCP from 6.7); unprivileged user namespaces
+  must be allowed (`kernel.unprivileged_userns_clone`, AppArmor on Ubuntu). The AOT compiler
+  (`shelld compile`) is not sandboxed yet.
 - **Permissions are handles.** `storage.open()`, `exec.open(name)` return a resource only if the
   permission is granted, otherwise `none`.
 - **HTTP is standard `wasi:http`.** The application uses an ordinary client (`wstd`, `waki`,
@@ -402,10 +417,11 @@ is also available for stopped apps if cold start is allowed for them.
 Done: supervisor, one process per app, cgroups v2 + fuel + memory limit, manifest and
 static import checking, `storage.private`, `net.http`, `exec` permissions, optional permissions,
 UI HTTP server with a subdomain per app, bridge and `shell.js`, a single resource profile,
-`shellctl install/list/start/stop/logs`, ping/tracepath example.
+`shellctl install/list/start/stop/logs`, ping/tracepath example, worker sandbox
+(namespaces, Landlock, seccomp).
 
 Remaining in the MVP scope: `system.services` (systemd over D-Bus) and `system.network`
-(NetworkManager) permissions, "network" and "systemd services" examples, seccomp/namespaces for the worker.
+(NetworkManager) permissions, "network" and "systemd services" examples.
 
 ## License
 

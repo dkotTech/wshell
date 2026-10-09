@@ -17,6 +17,7 @@ mod logs;
 mod metrics;
 mod package;
 mod process;
+mod sandbox;
 mod supervisor;
 #[cfg(feature = "ui-server")]
 mod ui;
@@ -46,9 +47,21 @@ struct Cli {
 enum Command {
     /// Check the configuration and print the effective values.
     CheckConfig,
+    /// Enter a worker's sandbox and check what it forbids on this kernel.
+    CheckSandbox,
     /// Internal mode: an app's worker process (started by the supervisor).
     #[command(hide = true)]
-    Worker,
+    Worker {
+        /// Sandbox mode: auto, required or off.
+        #[arg(long)]
+        sandbox: shell_core::config::SandboxMode,
+        /// The app's package directory, the only one the worker may read.
+        #[arg(long)]
+        pkg: PathBuf,
+        /// A `net.listen` port (repeatable).
+        #[arg(long)]
+        listen: Vec<u16>,
+    },
     /// Internal mode: AOT compilation of a component (started by the supervisor).
     #[command(hide = true, name = engine::COMPILE)]
     Compile { wasm: PathBuf, cwasm: PathBuf },
@@ -67,7 +80,10 @@ fn main() -> Result<()> {
 
     let cli = Cli::parse();
     match &cli.command {
-        Some(Command::Worker) => return worker::run(),
+        Some(Command::CheckSandbox) => return sandbox::check(),
+        Some(Command::Worker { sandbox, pkg, listen }) => {
+            return worker::run(&sandbox::Spec { mode: *sandbox, pkg_dir: pkg, listen });
+        }
         Some(Command::Compile { wasm, cwasm }) => {
             // The supervisor shows stderr to the user as is: one line, without `Debug`.
             if let Err(e) = engine::run_compile(wasm, cwasm) {

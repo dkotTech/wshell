@@ -21,6 +21,7 @@ pub struct Config {
     pub profile: Profile,
     pub exec: ExecSection,
     pub cgroups: CgroupsSection,
+    pub sandbox: SandboxSection,
     pub lifecycle: LifecycleSection,
     #[serde(default)]
     pub control: ControlSection,
@@ -190,6 +191,46 @@ pub enum CgroupMode {
     Auto,
     Off,
     Required,
+}
+
+/// Kernel-level confinement of workers on top of the WASM sandbox: namespaces, Landlock and
+/// seccomp. It matters only if a guest escapes Wasmtime.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct SandboxSection {
+    /// `auto`: every layer the kernel supports; `required`: a worker without all of them does
+    /// not start; `off`.
+    pub mode: SandboxMode,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SandboxMode {
+    Auto,
+    Off,
+    Required,
+}
+
+impl SandboxMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SandboxMode::Auto => "auto",
+            SandboxMode::Off => "off",
+            SandboxMode::Required => "required",
+        }
+    }
+}
+
+impl std::str::FromStr for SandboxMode {
+    type Err = anyhow::Error;
+    fn from_str(s: &str) -> Result<Self> {
+        Ok(match s {
+            "auto" => SandboxMode::Auto,
+            "off" => SandboxMode::Off,
+            "required" => SandboxMode::Required,
+            _ => anyhow::bail!("sandbox mode {s:?}: expected auto, off or required"),
+        })
+    }
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]

@@ -408,8 +408,13 @@ pub fn typecheck(engine: &wasmtime::Engine, component: &Component, kind: Backend
 }
 
 /// Entry point of `shelld worker`.
-pub fn run() -> Result<()> {
+pub fn run(sandbox: &crate::sandbox::Spec) -> Result<()> {
     crate::process::harden_self()?;
+    // Before any thread starts: the IPC reader below, Wasmtime, the wasi runtime.
+    for m in crate::sandbox::enter(sandbox)? {
+        // stderr goes to the app log.
+        eprintln!("sandbox: not applied: {m}");
+    }
     let (ipc, inbox) = Ipc::start();
     let next = || inbox.recv().unwrap_or_else(|_| std::process::exit(0));
 

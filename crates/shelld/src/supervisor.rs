@@ -581,8 +581,16 @@ impl Supervisor {
         };
 
         // IPC goes over the worker's stdin/stdout, guest output over stderr.
-        let mut child_proc = tokio::process::Command::new(std::env::current_exe()?)
+        let mut worker_cmd = tokio::process::Command::new(std::env::current_exe()?);
+        worker_cmd
             .arg("worker")
+            .args(["--sandbox", self.cfg.sandbox.mode.as_str()])
+            .arg("--pkg")
+            .arg(&installed.pkg_dir);
+        for port in &installed.grants.listen {
+            worker_cmd.args(["--listen", &port.to_string()]);
+        }
+        let mut child_proc = worker_cmd
             .env_clear()
             .current_dir("/")
             .stdin(Stdio::piped())

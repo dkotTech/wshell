@@ -47,7 +47,8 @@ but may put off contributors and integrators; decide on it before a public launc
 
 ## Phase 0: finish the MVP
 
-- seccomp and namespaces for the worker: required before claiming "safer than containers".
+- ✅ Worker sandbox: namespaces, Landlock and seccomp (`[sandbox]`, `shelld check-sandbox`).
+  Left: the AOT compiler process (`shelld compile`) runs untrusted input outside it.
 - `system.services` (systemd over D-Bus) and `system.network` (NetworkManager) permissions.
 - Close the spec's open questions: bridge format, minimum kernel.
 
