@@ -87,6 +87,10 @@ listen = "127.0.0.1:$metrics_port"
 # The Renderer gets one-time links to the launcher plugin, and nothing else.
 [control.sockets.render]
 allow = ["url:org.wshell.launcher"]
+
+# system.services: the demo's units belong to the user running it (no root, no polkit).
+[services]
+bus = "user"
 CFG
 cat > "$demo/render.toml" <<CFG
 [api]
@@ -107,9 +111,28 @@ cleanup() {
     # shelld stops its apps on SIGTERM; the Renderer has nothing to save.
     for pid in $pids; do kill "$pid" 2>/dev/null || true; done
     for pid in $pids; do wait "$pid" 2>/dev/null || true; done
+    if [ -n "$demo_units" ]; then
+        systemctl --user stop $demo_units 2>/dev/null || true
+        systemctl --user reset-failed $demo_units 2>/dev/null || true
+        for u in $demo_units; do rm -f "$units/$u"; done
+        systemctl --user daemon-reload || true
+    fi
     exit 0
 }
+demo_units=""
 trap cleanup EXIT INT TERM
+
+# Services for the services app (system.services): runtime unit files of this user, on tmpfs,
+# removed on exit. Nothing is written to ~/.config.
+units="${XDG_RUNTIME_DIR:-/nonexistent}/systemd/user"
+if systemctl --user show-environment >/dev/null 2>&1 && mkdir -p "$units" 2>/dev/null; then
+    printf '[Unit]\nDescription=wshell demo: a long-running service\n[Service]\nExecStart=sleep infinity\n' \
+        > "$units/wshell-demo-clock.service"
+    printf '[Unit]\nDescription=wshell demo: a service that fails\n[Service]\nExecStart=false\n' \
+        > "$units/wshell-demo-broken.service"
+    demo_units="wshell-demo-clock.service wshell-demo-broken.service"
+    systemctl --user daemon-reload
+fi
 
 say "starting shelld (UI :$shell_port, dashboard :$dash_port)"
 if command -v systemd-run >/dev/null; then

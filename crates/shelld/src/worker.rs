@@ -36,12 +36,13 @@ mod bindings {
             "shell:app/exec.command": super::CommandHandle,
             "shell:app/activity.busy": super::BusyHandle,
             "shell:app/apps.registry": super::RegistryHandle,
+            "shell:app/services.manager": super::ServicesHandle,
         },
     });
 }
 
 use bindings::exports::shell::app::lifecycle;
-use bindings::shell::app::{activity, apps, events, exec, log, metrics, storage};
+use bindings::shell::app::{activity, apps, events, exec, log, metrics, services, storage};
 
 /// Limit on the body of an outgoing `wasi:http` request (same as in the supervisor).
 const MAX_HTTP_BODY: usize = 8 << 20;
@@ -53,6 +54,7 @@ pub struct CommandHandle {
 /// A busy lock; id is the resource number in the table, unique among live handles.
 pub struct BusyHandle;
 pub struct RegistryHandle;
+pub struct ServicesHandle;
 
 /// Worker IPC over stdin/stdout. The reader thread dispatches replies to host calls
 /// to their waiters: the main WASM thread and `wasi:http` requests, which run
@@ -386,6 +388,57 @@ impl apps::HostRegistry for Host {
     fn drop(&mut self, rep: Resource<RegistryHandle>) -> wasmtime::Result<()> {
         self.table.delete(rep)?;
         Ok(())
+    }
+}
+
+impl services::Host for Host {
+    fn open(&mut self) -> Option<Resource<ServicesHandle>> {
+        if !self.grants.services {
+            return None;
+        }
+        self.table.push(ServicesHandle).ok()
+    }
+}
+
+impl services::HostManager for Host {
+    fn list(&mut self, _: Resource<ServicesHandle>) -> Result<Vec<services::UnitStatus>, String> {
+        match self.ipc.host_call(HostCall::ServicesList)? {
+            HostReply::Units(units) => Ok(units.into_iter().map(unit_status).collect()),
+            r => Err(unexpected(r)),
+        }
+    }
+
+    fn status(&mut self, _: Resource<ServicesHandle>, unit: String) -> Result<services::UnitStatus, String> {
+        match self.ipc.host_call(HostCall::ServicesStatus { unit })? {
+            HostReply::UnitStatus(u) => Ok(unit_status(u)),
+            r => Err(unexpected(r)),
+        }
+    }
+
+    fn control(&mut self, _: Resource<ServicesHandle>, unit: String, action: services::Action) -> Result<(), String> {
+        use shell_core::manifest::ServiceAction as A;
+        let action = match action {
+            services::Action::Start => A::Start,
+            services::Action::Stop => A::Stop,
+            services::Action::Restart => A::Restart,
+            services::Action::Reload => A::Reload,
+        };
+        self.ipc.host_call(HostCall::ServicesControl { unit, action }).map(drop)
+    }
+
+    fn drop(&mut self, rep: Resource<ServicesHandle>) -> wasmtime::Result<()> {
+        self.table.delete(rep)?;
+        Ok(())
+    }
+}
+
+fn unit_status(u: ipc::UnitStatus) -> services::UnitStatus {
+    services::UnitStatus {
+        name: u.name,
+        description: u.description,
+        load_state: u.load_state,
+        active_state: u.active_state,
+        sub_state: u.sub_state,
     }
 }
 

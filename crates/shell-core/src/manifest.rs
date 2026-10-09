@@ -162,8 +162,14 @@ pub enum PermissionKind {
     },
     #[serde(rename = "exec")]
     Exec(ExecSpec),
+    /// systemd units over D-Bus: the state of the `units` (`*` matches any characters) and the
+    /// listed `actions` on them; without `actions`, the state only.
     #[serde(rename = "system.services")]
-    SystemServices { units: Vec<String> },
+    SystemServices {
+        units: Vec<String>,
+        #[serde(default)]
+        actions: Vec<ServiceAction>,
+    },
     #[serde(rename = "system.network")]
     SystemNetwork { mode: NetworkMode },
     /// Incoming TCP connections on device ports. Shell only opens the port;
@@ -206,6 +212,43 @@ impl ExecSpec {
     pub fn template(&self) -> Result<Template> {
         Template::parse(&self.args)
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ServiceAction {
+    Start,
+    Stop,
+    Restart,
+    Reload,
+}
+
+impl ServiceAction {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ServiceAction::Start => "start",
+            ServiceAction::Stop => "stop",
+            ServiceAction::Restart => "restart",
+            ServiceAction::Reload => "reload",
+        }
+    }
+}
+
+/// A unit name pattern from `system.services`: `*` matches any characters (systemd's own
+/// patterns also allow `?` and `[]`, but a manifest keeps to the simple form).
+pub fn unit_matches(pattern: &str, unit: &str) -> bool {
+    let mut parts = pattern.split('*');
+    let first = parts.next().unwrap_or("");
+    let Some(mut rest) = unit.strip_prefix(first) else { return false };
+    let parts: Vec<&str> = parts.collect();
+    let Some((last, middle)) = parts.split_last() else { return rest.is_empty() };
+    for part in middle {
+        match rest.find(part) {
+            Some(i) => rest = &rest[i + part.len()..],
+            None => return false,
+        }
+    }
+    rest.len() >= last.len() && rest.ends_with(last)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
@@ -272,8 +315,12 @@ impl fmt::Display for PermissionKind {
                 }
                 Ok(())
             }
-            PermissionKind::SystemServices { units } => {
-                write!(f, "manage systemd services: {}", units.join(", "))
+            PermissionKind::SystemServices { units, actions } if actions.is_empty() => {
+                write!(f, "see the state of systemd services: {}", units.join(", "))
+            }
+            PermissionKind::SystemServices { units, actions } => {
+                let actions: Vec<&str> = actions.iter().map(|a| a.as_str()).collect();
+                write!(f, "{} systemd services: {}", actions.join(", "), units.join(", "))
             }
             PermissionKind::SystemNetwork { mode: NetworkMode::Read } => {
                 write!(f, "read network settings")
@@ -393,13 +440,14 @@ impl Permission {
                     );
                 }
             }
-            PermissionKind::SystemServices { units } => {
+            PermissionKind::SystemServices { units, .. } => {
                 ensure!(!units.is_empty(), "empty units list");
                 for u in units {
                     ensure!(
                         u.contains('.') && u.chars().all(|c| c.is_ascii_alphanumeric() || "-_.@:\\*".contains(c)),
                         "invalid unit name {u:?}"
                     );
+                    ensure!(u.chars().any(|c| c.is_ascii_alphanumeric()), "unit pattern {u:?} matches every unit");
                 }
             }
             PermissionKind::SystemNetwork { .. } => {}
@@ -489,6 +537,26 @@ optional = true
         let keys: Vec<_> = m.permissions.iter().map(Permission::key).collect();
         assert_eq!(keys, ["exec:ping", "storage.private"]);
         assert!(m.permissions[1].optional);
+    }
+
+    #[test]
+    fn unit_patterns() {
+        assert!(unit_matches("nginx.service", "nginx.service"));
+        assert!(!unit_matches("nginx.service", "nginx.service.d"));
+        assert!(unit_matches("wshell-*.service", "wshell-demo.service"));
+        assert!(unit_matches("wshell-*.service", "wshell-.service"));
+        assert!(!unit_matches("wshell-*.service", "wshell-demo.timer"));
+        assert!(unit_matches("*.timer", "fstrim.timer"));
+        assert!(unit_matches("getty@*.service", "getty@tty1.service"));
+        assert!(unit_matches("a*b*c.service", "aXXbYYc.service"));
+        assert!(!unit_matches("a*b*c.service", "aXXc.service"));
+        let services = |extra: &str| {
+            PING.replace("id = \"storage.private\"\nquota_mb = 1", &format!("id = \"system.services\"\n{extra}"))
+        };
+        let m = Manifest::parse(&services("units = [\"wshell-*.service\"]\nactions = [\"restart\"]")).unwrap();
+        assert_eq!(m.permissions[1].kind.to_string(), "restart systemd services: wshell-*.service");
+        assert!(Manifest::parse(&services("units = [\"*.*\"]")).is_err());
+        assert!(Manifest::parse(&services("units = [\"a.service\"]\nactions = [\"enable\"]")).is_err());
     }
 
     #[test]

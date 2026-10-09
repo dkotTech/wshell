@@ -43,6 +43,8 @@ pub struct Grants {
     pub listen: Vec<u16>,
     /// `shell.apps` (plugins).
     pub apps: bool,
+    /// `system.services`.
+    pub services: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -108,6 +110,10 @@ pub enum HostCall {
     AppsList,
     /// `shell.apps`: a one-time link to an app's UI.
     AppsUiLink { id: String },
+    /// `system.services`: the units the app may see.
+    ServicesList,
+    ServicesStatus { unit: String },
+    ServicesControl { unit: String, action: shell_core::manifest::ServiceAction },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -120,6 +126,17 @@ pub enum HostReply {
     Job(u64),
     Apps(Vec<AppEntry>),
     Url(String),
+    Units(Vec<UnitStatus>),
+    UnitStatus(UnitStatus),
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UnitStatus {
+    pub name: String,
+    pub description: String,
+    pub load_state: String,
+    pub active_state: String,
+    pub sub_state: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

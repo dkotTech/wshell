@@ -20,6 +20,7 @@ Roadmap: [ROADMAP.md](ROADMAP.md).
 | `apps/hello-axum` | The same with a web framework: axum on single-threaded tokio |
 | `apps/hello-go` | Experiment: a Go `net/http` server (TinyGo) via a hand-written network driver |
 | `apps/todo-py` | Example in Python (`componentize-py`): a todo list with UI, state in `storage.private` |
+| `apps/services` | Example: systemd services (`system.services`): their state, start, stop, restart |
 | `apps/stress` | Test application for checking limits (fuel, memory) |
 | `plugins/launcher` | Plugin: the device's home screen for the Renderer (list of apps, opening their UI) |
 
@@ -269,6 +270,47 @@ browser ──HTTP/WS, loopback──▶ │  ├─ package manager: manifest a
 - **States.** `running`: there is a visible UI tab; `suspended`: the UI is hidden or closed, events
   are not sent to the UI.
 
+## systemd services (`system.services`)
+
+An app sees and controls systemd units through Shell, over D-Bus; it never talks to systemd
+itself.
+
+```toml
+[[permissions]]
+id = "system.services"
+units = ["nginx.service", "wshell-demo-*.service"]   # `*` matches any characters
+actions = ["start", "stop", "restart"]             # also "reload"; none: state only
+reason = "Restarting the web server"
+```
+
+```rust
+let manager = services::open().ok_or("not granted")?;
+manager.list()?;                                    // name, description, load/active/sub state
+manager.status("nginx.service")?;
+manager.control("nginx.service", services::Action::Restart)?;   // queues the job
+```
+
+- Every call is checked against `units` and `actions`; denials and every action go to the
+  audit log. `list` returns the exact names (also when not loaded) and the units matching the
+  patterns that are loaded or have a unit file.
+- **Which systemd.** `[services] bus = "system"` (default) is the device's services. shelld
+  normally runs as a non-root user, so polkit decides what it may change; allow just the units
+  the apps need:
+
+  ```js
+  // /etc/polkit-1/rules.d/50-wshell.rules
+  polkit.addRule(function (action, subject) {
+      if (action.id == "org.freedesktop.systemd1.manage-units" && subject.user == "wshell" &&
+          ["nginx.service"].indexOf(action.lookup("unit")) >= 0) {
+          return polkit.Result.YES;
+      }
+  });
+  ```
+
+  `bus = "user"` uses the services of the user shelld runs as: for development and the demo,
+  which creates `wshell-demo-*.service` under `$XDG_RUNTIME_DIR/systemd/user` and removes them
+  on exit.
+
 ## Programs with `main` (kind = "command")
 
 Besides `shell:app` world applications (UI bridge, hooks, events), Shell runs ordinary programs:
@@ -418,10 +460,9 @@ Done: supervisor, one process per app, cgroups v2 + fuel + memory limit, manifes
 static import checking, `storage.private`, `net.http`, `exec` permissions, optional permissions,
 UI HTTP server with a subdomain per app, bridge and `shell.js`, a single resource profile,
 `shellctl install/list/start/stop/logs`, ping/tracepath example, worker sandbox
-(namespaces, Landlock, seccomp).
+(namespaces, Landlock, seccomp), `system.services` (systemd over D-Bus) with the services example.
 
-Remaining in the MVP scope: `system.services` (systemd over D-Bus) and `system.network`
-(NetworkManager) permissions, "network" and "systemd services" examples.
+Remaining in the MVP scope: the `system.network` (NetworkManager) permission and the "network" example.
 
 ## License
 

@@ -22,6 +22,7 @@ pub struct Config {
     pub exec: ExecSection,
     pub cgroups: CgroupsSection,
     pub sandbox: SandboxSection,
+    pub services: ServicesSection,
     pub lifecycle: LifecycleSection,
     #[serde(default)]
     pub control: ControlSection,
@@ -201,6 +202,22 @@ pub struct SandboxSection {
     /// `auto`: every layer the kernel supports; `required`: a worker without all of them does
     /// not start; `off`.
     pub mode: SandboxMode,
+}
+
+/// `system.services`: which systemd apps' units live in.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ServicesSection {
+    /// `system`: the device's services (polkit decides what the shelld user may change);
+    /// `user`: the services of the user shelld runs as (development, demos).
+    pub bus: Bus,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Bus {
+    System,
+    User,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]

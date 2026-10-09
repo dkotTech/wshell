@@ -1,0 +1,27 @@
+[app]
+id = "org.wshell.services"
+version = "0.1.0"
+name = "Services"
+shell_api = "0.1"
+
+[backend]
+component = "backend.wasm"
+world = "shell:app/app@0.1.0"
+
+[ui]
+entry = "ui/index.html"
+
+# On a device this would name its own services, e.g. units = ["nginx.service"]. The demo
+# (scripts/demo.sh) creates wshell-demo-*.service for the user shelld runs as.
+[[permissions]]
+id = "system.services"
+units = ["wshell-demo-*.service"]
+actions = ["start", "stop", "restart"]
+reason = "Showing and controlling the demo services"
+
+[resources]
+memory_mb = 16
+
+[lifecycle]
+idle = "stop"
+priority = "normal"

@@ -19,6 +19,7 @@ mod package;
 mod process;
 mod sandbox;
 mod supervisor;
+mod systemd;
 #[cfg(feature = "ui-server")]
 mod ui;
 mod util;

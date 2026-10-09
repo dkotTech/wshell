@@ -136,6 +136,20 @@ pub struct Grants {
     pub listen: Vec<u16>,
     /// `shell.apps` (plugins): the installed apps and links to their UI.
     pub apps: bool,
+    pub services: Option<ServicesGrant>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ServicesGrant {
+    /// Unit names and patterns (`*`).
+    pub units: Vec<String>,
+    pub actions: Vec<shell_core::manifest::ServiceAction>,
+}
+
+impl ServicesGrant {
+    pub fn allows(&self, unit: &str) -> bool {
+        self.units.iter().any(|p| shell_core::manifest::unit_matches(p, unit))
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -167,7 +181,10 @@ impl Grants {
                 }
                 PermissionKind::NetListen { ports } => g.listen.extend(ports),
                 PermissionKind::ShellApps {} => g.apps = true,
-                PermissionKind::SystemServices { .. } | PermissionKind::SystemNetwork { .. } => {}
+                PermissionKind::SystemServices { units, actions } => {
+                    g.services = Some(ServicesGrant { units: units.clone(), actions: actions.clone() });
+                }
+                PermissionKind::SystemNetwork { .. } => {}
             }
         }
         Ok(g)

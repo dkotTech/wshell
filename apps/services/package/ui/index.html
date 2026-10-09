@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Services</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="/_shell/shell.js"></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <header>
+    <h1>Services</h1>
+    <span class="hint">↑↓ unit · Enter start/stop · R restart</span>
+    <span id="conn" class="badge">disconnected</span>
+  </header>
+  <p id="error" class="error" hidden></p>
+  <ul id="list"></ul>
+  <p id="empty" class="hint" hidden>no units: the manifest allows wshell-demo-*.service</p>
+</body>
+</html>

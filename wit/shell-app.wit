@@ -78,6 +78,35 @@ interface exec {
     cancel: func(job: job-id);
 }
 
+/// The `system.services` permission: systemd units matching the manifest's `units`, over
+/// D-Bus. Changing a unit's state takes the action to be listed in the manifest's `actions`.
+interface services {
+    enum action { start, stop, restart, reload }
+
+    /// As systemd reports it (`systemctl show`).
+    record unit-status {
+        name: string,
+        description: string,
+        /// `loaded`, `not-found`, `masked`, …
+        load-state: string,
+        /// `active`, `inactive`, `failed`, `activating`, `deactivating`, …
+        active-state: string,
+        /// Depends on the unit type: `running`, `dead`, `exited`, `waiting`, …
+        sub-state: string,
+    }
+
+    resource manager {
+        /// The units this app may see: exact names from the manifest (also when not
+        /// loaded) and the loaded units matching its patterns.
+        %list: func() -> result<list<unit-status>, string>;
+        status: func(unit: string) -> result<unit-status, string>;
+        /// Queues the job in systemd and returns; the new state shows in `status`.
+        control: func(unit: string, action: action) -> result<_, string>;
+    }
+
+    open: func() -> option<manager>;
+}
+
 /// The `shell.apps` permission, plugins only (`kind = "plugin"`): the apps installed in
 /// Shell and their UI. Lets a plugin build a launcher, a switcher, a status screen.
 interface apps {
@@ -168,6 +197,7 @@ world app {
     import metrics;
     import storage;
     import exec;
+    import services;
     // The `net.http` permission is standard `wasi:http/outgoing-handler`: the component imports
     // it itself (e.g. via wstd); Shell checks the hosts and performs the request.
 

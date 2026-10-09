@@ -59,7 +59,69 @@ pub async fn handle(sup: &Arc<Supervisor>, worker: &Arc<Worker>, call: HostCall)
             sup.audit.record(&worker.installed.manifest.app.id, "ui-link", &id);
             Ok(HostReply::Url(url))
         }
+        HostCall::ServicesList => services_list(sup, worker).await,
+        HostCall::ServicesStatus { unit } => {
+            let conn = services_conn(sup, worker, Some(&unit)).await?;
+            let status = crate::systemd::status(conn, &unit).await.map_err(|e| format!("{e:#}"))?;
+            Ok(HostReply::UnitStatus(status))
+        }
+        HostCall::ServicesControl { unit, action } => {
+            let conn = services_conn(sup, worker, Some(&unit)).await?;
+            let app = &worker.installed.manifest.app.id;
+            let detail = format!("{} {unit}", action.as_str());
+            let grant = worker.installed.grants.services.as_ref().expect("checked by services_conn");
+            if !grant.actions.contains(&action) {
+                sup.audit.record(app, "deny-call", &format!("system.services {detail}: action not granted"));
+                return Err(format!("system.services: {} is not among the granted actions", action.as_str()));
+            }
+            worker.activity.touch();
+            let result = crate::systemd::control(conn, &unit, action).await.map_err(|e| format!("{e:#}"));
+            let outcome = if result.is_ok() { "queued" } else { "failed" };
+            sup.audit.record(app, "services", &format!("{detail} {outcome}"));
+            worker.log.write("shell", &format!("system.services: {detail} {outcome}"));
+            result.map(|()| HostReply::Unit)
+        }
     }
+}
+
+// --- system.services ---
+
+/// The connection, after checking the permission and, if given, that the unit is allowed.
+async fn services_conn<'a>(sup: &'a Supervisor, worker: &Worker, unit: Option<&str>) -> Result<&'a zbus::Connection, String> {
+    let app = &worker.installed.manifest.app.id;
+    let Some(grant) = &worker.installed.grants.services else {
+        return Err("permission system.services not granted".into());
+    };
+    if let Some(unit) = unit
+        && !grant.allows(unit)
+    {
+        sup.audit.record(app, "deny-call", &format!("system.services {unit}: not in units"));
+        return Err(format!("system.services: unit {unit} is not allowed"));
+    }
+    sup.dbus
+        .get_or_try_init(|| crate::systemd::connect(sup.cfg.services.bus))
+        .await
+        .map_err(|e| format!("{e:#}"))
+}
+
+/// Exact names, also when not loaded, plus the loaded units matching the patterns.
+async fn services_list(sup: &Supervisor, worker: &Worker) -> Result<HostReply, String> {
+    let conn = services_conn(sup, worker, None).await?;
+    let grant = worker.installed.grants.services.as_ref().expect("checked by services_conn");
+    let err = |e: anyhow::Error| format!("{e:#}");
+    let (patterns, exact): (Vec<&str>, Vec<&str>) = grant.units.iter().map(String::as_str).partition(|u| u.contains('*'));
+    let mut units = Vec::new();
+    for name in exact {
+        units.push(crate::systemd::status(conn, name).await.map_err(err)?);
+    }
+    if !patterns.is_empty() {
+        let found = crate::systemd::list(conn, &patterns).await.map_err(err)?;
+        // systemd's globs are wider than the manifest's: check every name again.
+        units.extend(found.into_iter().filter(|u| grant.allows(&u.name)));
+    }
+    units.sort_by(|a, b| a.name.cmp(&b.name));
+    units.dedup_by(|a, b| a.name == b.name);
+    Ok(HostReply::Units(units))
 }
 
 // --- shell.apps (plugins) ---
