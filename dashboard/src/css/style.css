@@ -64,6 +64,10 @@ body {
 }
 .chip b { color: var(--text); font-weight: 600; }
 .chip.warn { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 40%, transparent); }
+.theme-pick select {
+  font: inherit; font-size: 12px; color: var(--muted); cursor: pointer;
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 3px 6px;
+}
 .live { color: var(--green); font-size: 12px; transition: opacity .3s; }
 .live.paused { color: var(--gray); }
 .live.error { color: var(--red); }

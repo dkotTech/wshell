@@ -1,0 +1,220 @@
+/* Cyberdeck: a dark terminal deck with neon accents. Only applies with
+   <html data-theme="cyberdeck">; the default theme is style.css alone. */
+
+:root[data-theme="cyberdeck"] {
+  color-scheme: dark;
+  --bg: #06070c;
+  --panel: rgba(10, 14, 23, .94);
+  --panel-2: #0f1724;
+  --border: #173444;
+  --text: #d6f6ff;
+  --muted: #6c8ba0;
+  --accent: #00e5ff;
+  --accent-text: #00141a;
+  --pink: #ff2e97;
+  --green: #3dff8f;
+  --blue: #4da3ff;
+  --amber: #ffd23f;
+  --red: #ff3b6b;
+  --gray: #50627a;
+  --shadow: 0 0 0 1px rgba(0, 229, 255, .12), 0 16px 48px rgba(0, 0, 0, .75);
+  --radius: 0;
+  --mono: "JetBrains Mono", "Share Tech Mono", "Fira Code", ui-monospace, "DejaVu Sans Mono", monospace;
+  --glow: 0 0 8px color-mix(in srgb, var(--accent) 60%, transparent);
+  --cut: 7px;
+}
+
+[data-theme="cyberdeck"] body {
+  font: 13px/1.5 var(--mono);
+  background:
+    radial-gradient(ellipse 80% 50% at 50% -10%, rgba(0, 229, 255, .10), transparent 70%),
+    radial-gradient(ellipse 60% 50% at 100% 100%, rgba(255, 46, 151, .08), transparent 70%),
+    linear-gradient(rgba(0, 229, 255, .04) 1px, transparent 1px) 0 0 / 100% 32px,
+    linear-gradient(90deg, rgba(0, 229, 255, .04) 1px, transparent 1px) 0 0 / 32px 100%,
+    var(--bg);
+  background-attachment: fixed;
+}
+/* Scanlines over everything; they take no clicks. */
+[data-theme="cyberdeck"] body::after {
+  content: ""; position: fixed; inset: 0; z-index: 100; pointer-events: none;
+  background: repeating-linear-gradient(to bottom, transparent 0 2px, rgba(0, 0, 0, .22) 2px 3px);
+}
+[data-theme="cyberdeck"] ::selection { background: var(--pink); color: #fff; }
+[data-theme="cyberdeck"] .mono, [data-theme="cyberdeck"] .app-id { font-family: var(--mono); }
+
+/* Top bar */
+[data-theme="cyberdeck"] .topbar {
+  background: rgba(6, 7, 12, .88);
+  backdrop-filter: blur(6px);
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  box-shadow: 0 1px 0 rgba(255, 46, 151, .35), 0 6px 24px rgba(0, 229, 255, .08);
+}
+[data-theme="cyberdeck"] .brand { text-transform: uppercase; letter-spacing: .22em; font-weight: 700; }
+[data-theme="cyberdeck"] .brand > span:not(.muted) {
+  color: var(--accent);
+  text-shadow: -1px 0 var(--pink), 1px 0 rgba(0, 229, 255, .5), var(--glow);
+  animation: cd-flicker 6s infinite;
+}
+[data-theme="cyberdeck"] .brand svg { filter: drop-shadow(var(--glow)); }
+[data-theme="cyberdeck"] .brand .muted { letter-spacing: .05em; }
+[data-theme="cyberdeck"] .chip {
+  border-radius: 0; background: rgba(0, 229, 255, .05);
+  border-color: color-mix(in srgb, var(--accent) 25%, transparent);
+  text-transform: uppercase; letter-spacing: .06em; font-size: 11px;
+}
+[data-theme="cyberdeck"] .chip b { color: var(--accent); }
+[data-theme="cyberdeck"] .chip.warn { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 45%, transparent); }
+[data-theme="cyberdeck"] .live { text-transform: uppercase; letter-spacing: .1em; text-shadow: 0 0 6px currentColor; }
+[data-theme="cyberdeck"] .theme-pick select {
+  border-radius: 0; background: #000; color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  text-transform: uppercase; letter-spacing: .06em;
+}
+
+/* HUD corner brackets on panels */
+[data-theme="cyberdeck"] .card,
+[data-theme="cyberdeck"] .modal,
+[data-theme="cyberdeck"] .table-wrap { position: relative; }
+[data-theme="cyberdeck"] .card::before, [data-theme="cyberdeck"] .card::after,
+[data-theme="cyberdeck"] .modal::before, [data-theme="cyberdeck"] .modal::after {
+  content: ""; position: absolute; width: 12px; height: 12px; pointer-events: none;
+}
+[data-theme="cyberdeck"] .card::before, [data-theme="cyberdeck"] .modal::before {
+  top: 0; left: 0; border-top: 2px solid var(--accent); border-left: 2px solid var(--accent);
+}
+[data-theme="cyberdeck"] .card::after, [data-theme="cyberdeck"] .modal::after {
+  bottom: 0; right: 0; border-bottom: 2px solid var(--pink); border-right: 2px solid var(--pink);
+}
+
+/* Summary */
+[data-theme="cyberdeck"] .card { background: var(--panel); }
+[data-theme="cyberdeck"] .card .label { text-transform: uppercase; letter-spacing: .14em; font-size: 10.5px; }
+[data-theme="cyberdeck"] .card .value { color: var(--accent); text-shadow: var(--glow); font-weight: 700; }
+
+/* Filter bar */
+[data-theme="cyberdeck"] input[type=search], [data-theme="cyberdeck"] input[type=text] {
+  border-radius: 0; background: rgba(0, 0, 0, .55); caret-color: var(--pink);
+  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+[data-theme="cyberdeck"] input::placeholder { color: var(--gray); }
+[data-theme="cyberdeck"] input:focus-visible, [data-theme="cyberdeck"] button:focus-visible,
+[data-theme="cyberdeck"] select:focus-visible {
+  outline: 1px solid var(--accent); outline-offset: 1px; box-shadow: var(--glow);
+}
+[data-theme="cyberdeck"] .chips button {
+  border-radius: 0; text-transform: uppercase; letter-spacing: .08em; font-size: 11px;
+  background: rgba(0, 0, 0, .4); border-color: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+[data-theme="cyberdeck"] .chips button.active {
+  background: var(--accent); color: var(--accent-text); border-color: var(--accent); box-shadow: var(--glow);
+}
+
+/* Table */
+[data-theme="cyberdeck"] .table-wrap { border-color: color-mix(in srgb, var(--accent) 22%, transparent); }
+[data-theme="cyberdeck"] th {
+  background: rgba(0, 229, 255, .06); color: color-mix(in srgb, var(--accent) 75%, var(--muted));
+  letter-spacing: .16em; font-size: 10.5px;
+  border-bottom-color: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+/* A monospace font is wider: tighter cells keep the table on screen. */
+[data-theme="cyberdeck"] th, [data-theme="cyberdeck"] td { padding: 8px 9px; }
+[data-theme="cyberdeck"] td { border-bottom-color: rgba(0, 229, 255, .08); font-size: 12.5px; }
+[data-theme="cyberdeck"] .app-id { font-size: 11.5px; }
+[data-theme="cyberdeck"] .mem { min-width: 140px; }
+[data-theme="cyberdeck"] tbody tr:hover { background: rgba(0, 229, 255, .06); box-shadow: inset 2px 0 0 var(--accent); }
+[data-theme="cyberdeck"] tbody tr.selected { background: rgba(255, 46, 151, .08); box-shadow: inset 3px 0 0 var(--pink); }
+[data-theme="cyberdeck"] .app-name { letter-spacing: .03em; }
+
+/* Status lights */
+[data-theme="cyberdeck"] .status { text-transform: uppercase; letter-spacing: .06em; font-size: 11.5px; }
+[data-theme="cyberdeck"] .status::before { border-radius: 0; width: 7px; height: 7px; box-shadow: 0 0 8px currentColor; }
+[data-theme="cyberdeck"] .s-running, [data-theme="cyberdeck"] .s-failed { text-shadow: 0 0 6px currentColor; }
+[data-theme="cyberdeck"] .fails { text-shadow: 0 0 6px currentColor; }
+[data-theme="cyberdeck"] .prio { border-radius: 0; text-transform: uppercase; font-size: 10.5px; letter-spacing: .08em; }
+
+/* Memory */
+[data-theme="cyberdeck"] .bar { border-radius: 0; height: 5px; background: #0a1322; }
+[data-theme="cyberdeck"] .bar > span {
+  border-radius: 0; background: linear-gradient(90deg, var(--green), var(--accent)); box-shadow: 0 0 8px var(--accent);
+}
+[data-theme="cyberdeck"] .bar.warn > span { background: var(--amber); box-shadow: 0 0 8px var(--amber); }
+[data-theme="cyberdeck"] .bar.crit > span { background: var(--red); box-shadow: 0 0 8px var(--red); }
+
+/* Buttons: cut corners */
+[data-theme="cyberdeck"] .btn {
+  border-radius: 0;
+  clip-path: polygon(var(--cut) 0, 100% 0, 100% calc(100% - var(--cut)), calc(100% - var(--cut)) 100%, 0 100%, 0 var(--cut));
+  text-transform: uppercase; letter-spacing: .1em; font-size: 11.5px; font-weight: 700;
+  background: rgba(0, 229, 255, .06); color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+[data-theme="cyberdeck"] .btn:hover:not(:disabled) { background: rgba(0, 229, 255, .16); }
+[data-theme="cyberdeck"] .btn.primary {
+  background: linear-gradient(90deg, var(--accent), #7cf6ff); color: var(--accent-text); border-color: transparent;
+}
+[data-theme="cyberdeck"] .btn.primary:hover:not(:disabled) {
+  background: linear-gradient(90deg, var(--pink), #ff7ac0); color: #fff; filter: none;
+}
+[data-theme="cyberdeck"] .btn.danger { color: var(--red); border-color: color-mix(in srgb, var(--red) 50%, transparent); background: rgba(255, 59, 107, .06); }
+[data-theme="cyberdeck"] .btn.danger.solid { background: var(--red); color: #fff; }
+[data-theme="cyberdeck"] .btn.small { font-size: 10.5px; padding: 1px 9px; }
+[data-theme="cyberdeck"] .icon-btn { border-radius: 0; }
+[data-theme="cyberdeck"] .icon-btn:hover:not(:disabled) {
+  color: var(--accent); background: rgba(0, 229, 255, .08);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent); box-shadow: var(--glow);
+}
+
+/* Side panel */
+[data-theme="cyberdeck"] .drawer {
+  background: rgba(7, 10, 17, .97);
+  border-left: 1px solid color-mix(in srgb, var(--accent) 50%, transparent);
+  box-shadow: -1px 0 0 rgba(255, 46, 151, .4), -18px 0 50px rgba(0, 229, 255, .08);
+}
+[data-theme="cyberdeck"] .backdrop, [data-theme="cyberdeck"] .modal-wrap { background: rgba(0, 0, 0, .6); }
+[data-theme="cyberdeck"] .d-name { text-transform: uppercase; letter-spacing: .12em; }
+[data-theme="cyberdeck"] .tabs { border-bottom-color: color-mix(in srgb, var(--accent) 30%, transparent); }
+[data-theme="cyberdeck"] .tab { text-transform: uppercase; letter-spacing: .12em; font-size: 11.5px; }
+[data-theme="cyberdeck"] .tab.active { color: var(--pink); border-bottom-color: var(--pink); text-shadow: 0 0 6px var(--pink); }
+[data-theme="cyberdeck"] h3 { color: var(--pink); letter-spacing: .2em; font-size: 11px; }
+[data-theme="cyberdeck"] h3::before { content: "// "; color: var(--accent); }
+[data-theme="cyberdeck"] dl.kv dt { text-transform: uppercase; letter-spacing: .08em; font-size: 11.5px; }
+[data-theme="cyberdeck"] .perm {
+  border-radius: 0; border-color: rgba(0, 229, 255, .14); border-left: 2px solid var(--gray); background: rgba(0, 0, 0, .25);
+}
+[data-theme="cyberdeck"] .perm.granted { border-left-color: var(--green); }
+[data-theme="cyberdeck"] .perm.granted .mark { text-shadow: 0 0 6px currentColor; }
+[data-theme="cyberdeck"] .tag {
+  border-radius: 0; font-family: var(--mono); text-transform: uppercase; letter-spacing: .06em;
+  border: 1px solid color-mix(in srgb, var(--muted) 40%, transparent); background: transparent;
+}
+[data-theme="cyberdeck"] .tag.new { border-color: var(--amber); background: rgba(255, 210, 63, .08); }
+[data-theme="cyberdeck"] .exit-box { border-radius: 0; border-left: 2px solid var(--red); }
+[data-theme="cyberdeck"] .exit-box.ok { border-left-color: var(--gray); }
+[data-theme="cyberdeck"] .log {
+  border-radius: 0; background: #020306;
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
+  box-shadow: inset 0 0 30px rgba(0, 229, 255, .05);
+}
+
+/* Dialogs and notifications */
+[data-theme="cyberdeck"] .modal {
+  border-radius: 0; background: rgba(8, 12, 20, .98);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+[data-theme="cyberdeck"] .modal h2 { color: var(--accent); text-transform: uppercase; letter-spacing: .1em; font-size: 15px; text-shadow: var(--glow); }
+[data-theme="cyberdeck"] .dropzone { border-radius: 0; border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
+[data-theme="cyberdeck"] .toast {
+  border-radius: 0; background: #02060a; color: var(--accent);
+  border: 1px solid var(--accent); box-shadow: var(--glow);
+}
+[data-theme="cyberdeck"] .toast.error { background: #1a0510; color: #ffd0dc; border-color: var(--red); box-shadow: 0 0 10px var(--red); }
+
+@keyframes cd-flicker {
+  0%, 92%, 100% { opacity: 1; }
+  93% { opacity: .55; }
+  94% { opacity: 1; }
+  96% { opacity: .75; }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-theme="cyberdeck"] .brand > span:not(.muted) { animation: none; }
+}

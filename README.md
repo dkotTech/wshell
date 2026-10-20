@@ -233,6 +233,9 @@ data) and a version that was rolled back.
   mutating requests require the dashboard `Origin`. Dashboard logins are written to the audit log.
 - Changes (start, stop, install, rollback, remove) run to the end even if the browser tab is
   closed in the middle.
+- **Themes.** Default (light or dark, as the system) and Cyberdeck (neon on black, monospace);
+  picked in the top bar and remembered in the browser. A theme is one CSS file over
+  `<html data-theme="…">` (`dashboard/src/css/cyberdeck.css`).
 - **Power.** The dashboard polls `/api/overview` every 2 s only while the tab is visible; the log
   is streamed (SSE) while the "Log" tab is open.
 - **Metrics.** Taken from the cgroup (`memory.current`, `cpu.stat`, `pids.current`), and without a

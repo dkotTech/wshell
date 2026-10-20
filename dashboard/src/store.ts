@@ -1,9 +1,35 @@
-import { computed, signal } from '@preact/signals';
+import { computed, effect, signal } from '@preact/signals';
 import type { ComponentChildren } from 'preact';
 import { ApiError, appAction, getOverview, type Action } from './api/client';
 import type { AppState, AppStatus, ShellInfo } from './api/types';
 
 const POLL_MS = 2000;
+
+// --- Theme: a preference of this browser ---
+
+export const THEMES = { default: 'Default', cyberdeck: 'Cyberdeck' } as const;
+export type Theme = keyof typeof THEMES;
+const THEME_KEY = 'wshell.dashboard.theme';
+
+function savedTheme(): Theme {
+  try {
+    const t = localStorage.getItem(THEME_KEY);
+    if (t && t in THEMES) return t as Theme;
+  } catch {
+    /* storage unavailable: the default */
+  }
+  return 'default';
+}
+
+export const theme = signal<Theme>(savedTheme());
+effect(() => {
+  document.documentElement.dataset.theme = theme.value;
+  try {
+    localStorage.setItem(THEME_KEY, theme.value);
+  } catch {
+    /* not remembered */
+  }
+});
 
 // --- Server data ---
 

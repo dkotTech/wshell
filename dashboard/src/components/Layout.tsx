@@ -14,6 +14,9 @@ import {
   select,
   selectedId,
   shell,
+  THEMES,
+  theme,
+  type Theme,
   toasts,
   visibleApps,
 } from '../store';
@@ -58,6 +61,14 @@ export function TopBar() {
         </div>
       )}
       <div class="spacer" />
+      <label class="theme-pick" title="Dashboard theme (remembered in this browser)">
+        <span class="sr-only">Theme</span>
+        <select value={theme.value} onChange={(e) => (theme.value = e.currentTarget.value as Theme)}>
+          {Object.entries(THEMES).map(([key, name]) => (
+            <option value={key}>{name}</option>
+          ))}
+        </select>
+      </label>
       <span class={cls} title={hint || connectionError.value}>
         {text}
       </span>
