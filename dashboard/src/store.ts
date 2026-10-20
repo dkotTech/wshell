@@ -7,7 +7,7 @@ const POLL_MS = 2000;
 
 // --- Theme: a preference of this browser ---
 
-export const THEMES = { default: 'Default', cyberdeck: 'Cyberdeck' } as const;
+export const THEMES = { default: 'Default', cyberdeck: 'Cyberdeck', pixel: 'Pixel 1-bit' } as const;
 export type Theme = keyof typeof THEMES;
 const THEME_KEY = 'wshell.dashboard.theme';
 

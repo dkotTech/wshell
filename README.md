@@ -233,9 +233,10 @@ data) and a version that was rolled back.
   mutating requests require the dashboard `Origin`. Dashboard logins are written to the audit log.
 - Changes (start, stop, install, rollback, remove) run to the end even if the browser tab is
   closed in the middle.
-- **Themes.** Default (light or dark, as the system) and Cyberdeck (neon on black, monospace);
+- **Themes.** Default (light or dark, as the system), Cyberdeck (neon on black, monospace) and
+  Pixel 1-bit (black on white only, dithered grays, the Cozette bitmap font at 13 and 26 px);
   picked in the top bar and remembered in the browser. A theme is one CSS file over
-  `<html data-theme="…">` (`dashboard/src/css/cyberdeck.css`).
+  `<html data-theme="…">` (`dashboard/src/css/`).
 - **Power.** The dashboard polls `/api/overview` every 2 s only while the tab is visible; the log
   is streamed (SSE) while the "Log" tab is open.
 - **Metrics.** Taken from the cgroup (`memory.current`, `cpu.stat`, `pids.current`), and without a
@@ -660,3 +661,13 @@ Copyright (c) 2026 dkotTech.
   (JSON lines on a socket), no wshell code.
 - Third-party components keep their own licenses (Wasmtime: Apache-2.0 WITH LLVM-exception;
   Servo: MPL-2.0; WPE WebKit: LGPL and BSD, linked dynamically).
+
+## Screenshots
+
+The dashboard in its three themes (picked in the top bar): the app list, and an app's card
+after an update, with the previous version to roll back to.
+
+| Default | Cyberdeck | Pixel 1-bit |
+| --- | --- | --- |
+| ![Default theme: app list](docs/screenshots/dashboard-default.png) | ![Cyberdeck theme: app list](docs/screenshots/dashboard-cyberdeck.png) | ![Pixel 1-bit theme: app list](docs/screenshots/dashboard-pixel.png) |
+| ![Default theme: app card](docs/screenshots/dashboard-default-app.png) | ![Cyberdeck theme: app card](docs/screenshots/dashboard-cyberdeck-app.png) | ![Pixel 1-bit theme: app card](docs/screenshots/dashboard-pixel-app.png) |
