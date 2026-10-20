@@ -1,8 +1,8 @@
 import { useRef, useState } from 'preact/hooks';
-import { cancelUpload, installUpload, openUrl, uninstall, uploadPackage } from '../api/client';
+import { cancelUpload, installUpload, openUrl, rollback, uninstall, uploadPackage } from '../api/client';
 import type { AppStatus, PackageInfo } from '../api/types';
 import { activeBusy, fmtBytes } from '../format';
-import { act, closeDrawer, closeModal, modal, refresh, select, toast } from '../store';
+import { act, closeDrawer, closeModal, modal, pending, refresh, select, shell, toast } from '../store';
 
 function Confirm({ title, text, ok, onOk }: { title: string; text: string; ok: string; onOk: () => void }) {
   return (
@@ -98,6 +98,61 @@ export function confirmUninstall(app: AppStatus): void {
       />
     ),
   };
+}
+
+export function confirmRollback(app: AppStatus): void {
+  modal.value = { content: <RollbackDialog app={app} /> };
+}
+
+function RollbackDialog({ app }: { app: AppStatus }) {
+  const [keepData, setKeepData] = useState(false);
+  const to = app.previous_version;
+  const run = async () => {
+    closeModal();
+    pending.value = new Set(pending.value).add(app.id);
+    try {
+      const r = await rollback(app.id, keepData);
+      toast(`${app.name}: ${r.from} → ${r.to}`);
+    } catch (e) {
+      toast(`${app.name}: ${(e as Error).message}`, true);
+    } finally {
+      const next = new Set(pending.value);
+      next.delete(app.id);
+      pending.value = next;
+      await refresh();
+    }
+  };
+  return (
+    <>
+      <h2>
+        Roll {app.name} back to {to}?
+      </h2>
+      <div class="body">
+        <p>
+          {app.version} and {to} swap places: rolling back again returns to {app.version}. {to} runs on trial first; if
+          it fails, {app.version} stays.
+        </p>
+        <label class="check">
+          <input type="checkbox" checked={keepData} onChange={(e) => setKeepData(e.currentTarget.checked)} /> Keep the
+          current data
+        </label>
+        <p class="muted">
+          {keepData
+            ? `${to} gets the storage as it is now: data written since the update stays, but ${to} may not read a format ${app.version} migrated.`
+            : `${to} gets its storage as it was before the update; the current one is kept with ${app.version}.`}
+        </p>
+        {app.state === 'running' && <p class="muted">The app is stopped for the switch and started again.</p>}
+      </div>
+      <div class="foot">
+        <button type="button" class="btn" onClick={closeModal}>
+          Cancel
+        </button>
+        <button type="button" class="btn primary" autoFocus onClick={run}>
+          Roll back to {to}
+        </button>
+      </div>
+    </>
+  );
 }
 
 export async function openUi(app: AppStatus): Promise<void> {
@@ -209,6 +264,7 @@ function PackageDialog({ upload, pkg, onInstalled }: { upload: string; pkg: Pack
   // On update, previously granted optional permissions stay checked.
   const [grant, setGrant] = useState(() => new Set(pkg.permissions.filter((p) => p.optional && p.granted).map((p) => p.key)));
   const [busy, setBusy] = useState(false);
+  const probation = shell.value?.update_probation_s;
 
   const install = async () => {
     setBusy(true);
@@ -216,7 +272,7 @@ function PackageDialog({ upload, pkg, onInstalled }: { upload: string; pkg: Pack
       const r = await installUpload(upload, [...grant]);
       onInstalled();
       closeModal();
-      toast(`Installed: ${r.id} ${r.version}`);
+      toast(upgrade ? `Updated: ${r.id} ${r.version}` : `Installed: ${r.id} ${r.version}`);
       await refresh();
       select(r.id);
     } catch (e) {
@@ -263,13 +319,19 @@ function PackageDialog({ upload, pkg, onInstalled }: { upload: string; pkg: Pack
           </div>
         ))}
         {!pkg.has_ui && <p class="muted">The app has no UI (background service).</p>}
+        {upgrade && (
+          <p class="muted">
+            {pkg.version} runs on trial{probation ? ` for ${probation} s` : ''}; if it fails, {pkg.installed_version} comes
+            back with its data. {pkg.installed_version} is kept for a rollback.
+          </p>
+        )}
       </div>
       <div class="foot">
         <button type="button" class="btn" onClick={closeModal}>
           Cancel
         </button>
         <button type="button" class="btn primary" disabled={busy} onClick={install}>
-          {upgrade ? 'Update' : 'Install'}
+          {busy ? (upgrade ? 'Updating…' : 'Installing…') : upgrade ? 'Update' : 'Install'}
         </button>
       </div>
     </>

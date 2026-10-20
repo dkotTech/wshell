@@ -89,7 +89,10 @@ shellctl apply --prune apps.toml   # also uninstall apps the file does not list 
   `up to date`. A rebuilt package with the same version is not noticed: bump the version.
 - **The file is the consent.** Required permissions come with the install and the optional ones
   are exactly `grant`, without questions (like `install --yes`).
-- **Updates** stop a running app, install, and start it again unless `state = "stopped"`.
+- **Updates** go as described in [Updates and rollback](#updates-and-rollback): a running app
+  keeps running (on the new version, or the old one if the new one fails) unless
+  `state = "stopped"`. A version that was rolled back is not installed again: the file needs
+  another version, or `shellctl install` retries it.
 - Unlisted apps are only reported unless `--prune` is given. A file that lists no apps never
   prunes: it is more likely truncated than meant (uninstall them one by one). The first error
   stops `apply`; the steps before it stay applied.
@@ -117,6 +120,39 @@ prune = false                    # also uninstall apps the file does not list
   prunes.
 - Not continuous: an idle stop, an eviction or a manual `shellctl stop` holds until the next pass,
   so `state = "running"` means "running after each pass", not "always".
+
+## Updates and rollback
+
+Installing over an installed app (`shellctl install`, the desired state, the dashboard) is an
+update with a trial run:
+
+1. The new package is checked and compiled while the old version still runs.
+2. The old version stops; its package, grants and a copy of its storage are set aside
+   (`apps/<id>/prev`).
+3. The new version starts and must keep running for `[update] probation_s` (10 s), with its
+   `net.listen` ports accepting connections. An app that was stopped is stopped again after
+   the trial.
+4. If it fails, everything goes back: the old package, grants and the storage as it was before
+   the update; the old version runs again if it ran. `install` fails with the reason, the
+   audit log records the rollback, and the failed version is dropped and remembered.
+
+```sh
+shellctl rollback org.acme.ping              # back to the previous version, with its data
+shellctl rollback org.acme.ping              # and forth again: the two swap places
+shellctl rollback --keep-data org.acme.ping  # only the code: the current storage stays
+```
+
+- One previous version is kept. `shellctl list` shows it and a rolled-back version.
+- A version that was rolled back (automatically or by hand) is not installed again by the
+  desired state, so a device does not flap between versions; `shellctl install` retries it.
+- **Migrations** are the app's own: `on-start` sees the storage of the previous version and may
+  convert it. Shell makes that safe: the storage is restored on a rollback. (A dedicated hook
+  would need a new WIT world; `on-start` already runs at the right moment.)
+- The switch is stop, then start: the app is unavailable for its start time, and bridge calls
+  wait for the end. Running two versions side by side does not fit apps with state and ports;
+  it comes with stateless HTTP handlers (`wasi:http/proxy`).
+- Readiness is "started and keeps running, ports accept"; health checks (`health.check`) will
+  add to the same trial.
 
 ## Packages in a registry (`oci://`)
 
@@ -189,9 +225,14 @@ relative to the limit, PID. From it you can start, stop, restart and remove
 applications, open their UI and watch the log in real time. A package can be installed by
 dragging and dropping a `.pkg`; before installing, the dashboard shows the permissions and lets you choose optional ones.
 The reason for the last failure (e.g. `trap: all fuel consumed`) is visible in the application card.
+Installing over an installed app is an [update](#updates-and-rollback): the dialog says so, and
+the card shows the previous version with a **Roll back** button (optionally keeping the current
+data) and a version that was rolled back.
 
 - **Access.** One-time token → `HttpOnly; SameSite=Strict` cookie, strict `Host` check;
   mutating requests require the dashboard `Origin`. Dashboard logins are written to the audit log.
+- Changes (start, stop, install, rollback, remove) run to the end even if the browser tab is
+  closed in the middle.
 - **Power.** The dashboard polls `/api/overview` every 2 s only while the tab is visible; the log
   is streamed (SSE) while the "Log" tab is open.
 - **Metrics.** Taken from the cgroup (`memory.current`, `cpu.stat`, `pids.current`), and without a

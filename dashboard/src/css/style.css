@@ -158,6 +158,8 @@ tbody tr:last-child td { border-bottom: 0; }
 .btn:disabled { opacity: .45; cursor: default; }
 .btn svg { width: 15px; height: 15px; flex: none; }
 .btn { white-space: nowrap; }
+.btn.small { padding: 1px 8px; font-size: 12px; margin-left: 4px; }
+.check { display: flex; align-items: center; gap: 6px; margin: 10px 0 4px; }
 .actions-col { width: 1%; }
 .row-actions { display: flex; gap: 4px; justify-content: flex-end; }
 .icon-btn {

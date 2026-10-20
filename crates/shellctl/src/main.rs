@@ -51,6 +51,14 @@ enum Cmd {
     },
     /// Have shelld bring the apps to its own desired-state file ([desired] file) now.
     Reconcile,
+    /// Go back to the version before the last update; again: forth. The storage goes with
+    /// the version (as it was before the update) unless --keep-data.
+    Rollback {
+        id: String,
+        /// Keep the current storage.
+        #[arg(long)]
+        keep_data: bool,
+    },
     /// Remove an app and its data.
     Uninstall { id: String },
     /// List installed apps.
@@ -166,6 +174,9 @@ fn run() -> Result<()> {
             for id in &r.unlisted {
                 println!("not in {}: {id} (kept; [desired] prune removes it)", r.file.display());
             }
+            for app in &r.rolled_back {
+                println!("{app} was rolled back: not installed again (shellctl install retries it)");
+            }
             for step in &r.done {
                 println!("{step}");
             }
@@ -178,6 +189,14 @@ fn run() -> Result<()> {
             if !r.errors.is_empty() {
                 std::process::exit(1);
             }
+            Ok(())
+        }
+        Cmd::Rollback { id, keep_data } => {
+            let Response::RolledBack { id, from, to } = conn.request(&Request::Rollback { id, keep_data })? else {
+                bail!("unexpected response from shelld");
+            };
+            let data = if keep_data { "current data kept" } else { "with the data it had" };
+            println!("{id}: {from} → {to} ({data})");
             Ok(())
         }
         Cmd::Uninstall { id } => {
@@ -302,6 +321,9 @@ fn apply(conn: &mut Conn, file: &Path, prune: bool, dry_run: bool) -> Result<()>
     for id in &plan.unlisted {
         println!("not in {}: {id} (kept; --prune removes it)", file.display());
     }
+    for app in &plan.rolled_back {
+        println!("{app} was rolled back: not installed again (shellctl install retries it)");
+    }
     if plan.steps.is_empty() {
         println!("up to date");
         return Ok(());
@@ -412,7 +434,14 @@ fn list(conn: &mut Conn) -> Result<()> {
         "{:<w$}  {:<8} {:<10} {:<7} {:>7} {:>5} {:>6} {:>9} {:>8}  BUSY",
         "ID", "VERSION", "STATE", "PRIO", "STARTS", "FAILS", "AGE", "MEMORY", "PID"
     );
+    let mut notes = Vec::new();
     for a in apps {
+        if let Some(v) = &a.rolled_back {
+            notes.push(format!("{}: {v} was rolled back", a.id));
+        }
+        if let Some(v) = &a.previous_version {
+            notes.push(format!("{}: previous version {v} (shellctl rollback)", a.id));
+        }
         let dash = || "-".to_string();
         let pid = a.pid.map(|p| p.to_string()).unwrap_or_else(dash);
         let age = a.started_at.map(|t| age(now.saturating_sub(t))).unwrap_or_else(dash);
@@ -432,6 +461,10 @@ fn list(conn: &mut Conn) -> Result<()> {
             pid,
             busy.join("; ")
         );
+    }
+    if !notes.is_empty() {
+        println!();
+        notes.iter().for_each(|n| println!("{n}"));
     }
     Ok(())
 }

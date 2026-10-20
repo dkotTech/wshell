@@ -36,9 +36,9 @@ but may put off contributors and integrators; decide on it before a public launc
 | PersistentVolume | `storage.private` | ⚠️ local only |
 | ConfigMap / Secret | — | ❌ |
 | Service / Ingress | `*.localhost` subdomains, `net.listen` | ⚠️ loopback, no TLS |
-| Desired state / reconcile | — | ❌ |
-| Registry / image signing | tar package | ❌ |
-| Rolling update / rollback | update only while stopped | ❌ |
+| Desired state / reconcile | `shellctl apply`, `[desired] file` | ✅ |
+| Registry / image signing | `oci://` packages, cosign keys | ⚠️ no private registries |
+| Rolling update / rollback | trial run, automatic and manual rollback | ⚠️ stop-then-start |
 | Readiness / liveness | — | ❌ |
 | Job / CronJob | — | ❌ |
 | Service-to-service calls | forbidden (v1 non-goal) | ❌ |
@@ -74,8 +74,14 @@ Goal: one machine can run production instead of docker-compose or k3s.
      shelld, pinned to a digest, cached; published with `oras push` (see README).
    - ✅ Signatures: cosign 3 key signatures, `[registry] keys`; checked before the download.
    - Next: logins for private registries; keyless (OIDC, Rekor) signatures if needed.
-3. **Updates.** Start the new version next to the old one, wait for readiness, switch over;
-   rollback and a `storage` migration hook.
+3. **Updates.**
+   - ✅ An update is tried (`[update] probation_s`) and rolled back with its storage if the new
+     version fails; `shellctl rollback [--keep-data]`; rolled-back versions are not installed
+     again by the desired state (see README).
+   - Decided: stop-then-start, not side by side (state and ports); migrations in `on-start`,
+     made safe by the storage snapshot, not a new WIT hook.
+   - ✅ Dashboard: the previous version, a rollback button, rolled-back versions.
+   - Next: health checks join the trial.
 4. **Health checks.** Readiness and liveness as a WIT export (`health.check`) with timeouts.
 5. **Config and secrets.** Standard `wasi:config` rather than an own interface; secrets
    encrypted at rest and handed out only by permission.
@@ -133,4 +139,5 @@ No own consensus up front; in steps:
 
 ## Next
 
-Logins for private registries (phase 1, item 2), then updates with rollback (item 3).
+Health checks (phase 1, item 4): they complete the update trial. Logins for private
+registries (item 2) are still open.

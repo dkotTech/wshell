@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, anyhow, bail, ensure};
 use shell_core::config::{CgroupMode, Config};
 use shell_core::control::{AppState, AppStatus, Metrics, PackageInfo, StopReason};
 use shell_core::manifest::BackendKind;
@@ -75,6 +75,8 @@ struct App {
     last_exit_at: Option<Instant>,
     /// The last metrics snapshot the app published; kept while it is stopped.
     metrics: Option<Arc<PublishedMetrics>>,
+    /// An update or rollback is switching versions: no other start, calls wait.
+    updating: bool,
 }
 
 /// An app's metrics snapshot, validated.
@@ -97,6 +99,7 @@ impl App {
             last_exit: None,
             last_exit_at: None,
             metrics: None,
+            updating: false,
         }
     }
 }
@@ -388,6 +391,8 @@ impl Supervisor {
                         on_demand: self.on_demand(id) && m.backend.kind.has_bridge(),
                         kind: m.backend.kind,
                         ports: a.installed.grants.listen.clone(),
+                        previous_version: a.installed.previous.clone(),
+                        rolled_back: a.installed.rolled_back.clone(),
                     };
                     (status, a.worker.clone())
                 })
@@ -437,6 +442,7 @@ impl Supervisor {
             ui_port: ui.then_some(self.cfg.http.port),
             cpu_max_percent: self.cfg.profile.cpu_max_percent,
             memory_mb: self.cfg.profile.memory_mb,
+            update_probation_s: self.cfg.update.probation_s,
         }
     }
 
@@ -491,45 +497,189 @@ impl Supervisor {
         expect: Option<String>,
     ) -> Result<(String, String)> {
         let _guard = self.install_lock.lock().await;
+        // Checked and compiled while the installed version still runs.
         let this = self.clone();
-        let installed = tokio::task::spawn_blocking(move || -> Result<Installed> {
+        let staged = tokio::task::spawn_blocking(move || -> Result<package::Staged> {
             let staged = package::stage(&path, &this.paths, &this.cfg, &this.engine)?;
-            let id = staged.manifest.app.id.clone();
+            let id = &staged.manifest.app.id;
             if let Some(expect) = expect
-                && expect != id
+                && expect != *id
             {
                 bail!("the package now holds app {id}, not {expect}");
             }
-            if this.worker(&id).is_some() {
-                bail!("app {id} is running; stop it before updating");
-            }
             this.check_ports(&staged.manifest)?;
+            Ok(staged)
+        })
+        .await??;
+        let id = staged.manifest.app.id.clone();
+        let version = staged.manifest.app.version.clone();
+
+        // An update: the installed version is set aside, the new one tried and rolled back
+        // if it fails.
+        let old = self.installed(&id).map(|i| i.manifest.app.version.clone());
+        let _updating = old.is_some().then(|| self.begin_update(&id));
+        let was_running = self.worker(&id).is_some();
+        if was_running {
+            self.app_log(&id).inspect(|l| l.write("shell", &format!("stopping for the update to {version}")));
+            self.stop(&id, StopReason::Update, false).await?;
+        }
+        let this = self.clone();
+        let installed = tokio::task::spawn_blocking(move || {
+            // An install clears a rollback's mark; a failure below sets it again.
+            package::set_rolled_back(&this.paths, &staged.manifest.app.id, None)?;
             package::install(&staged, &grant_optional, &this.paths, &this.engine, &this.audit)
         })
         .await??;
-
-        let id = installed.manifest.app.id.clone();
-        let version = installed.manifest.app.version.clone();
-        let log = {
-            let mut apps = self.apps.lock().unwrap();
-            let log = apps
-                .get(&id)
-                .map(|a| a.log.clone())
-                .unwrap_or_else(|| Arc::new(AppLog::new(self.paths.log(&id))));
-            let mut app = App::new(installed, log.clone());
-            if let Some(old) = apps.get(&id) {
-                (app.starts, app.failures, app.last_exit) = (old.starts, old.failures, old.last_exit.clone());
-            }
-            apps.insert(id.clone(), app);
-            log
-        };
+        let log = self.put_installed(installed);
         log.write("shell", &format!("installed version {version} from {source}"));
         if let Source::Oci(_) = source {
             // Which artifact exactly: the digest, not a tag that may move.
             let signed = signed_by.map(|k| format!(", signed by {k}")).unwrap_or_default();
             self.audit.record(&id, "source", &format!("{source}{signed}"));
         }
+
+        if let Some(old) = old
+            && let Err(e) = self.try_version(&id, was_running).await
+        {
+            log.write("shell", &format!("update to {version} failed: {e:#}; rolling back to {old}"));
+            let restored = self.switch_back_after_failure(&id, &version, was_running).await;
+            self.audit.record(&id, "rollback", &format!("{version} → {old}: {e:#}"));
+            return Err(match restored {
+                Ok(()) => anyhow!("update to {version} failed: {e:#}; rolled back to {old}"),
+                Err(r) => anyhow!("update to {version} failed: {e:#}; rolling back to {old} failed too: {r:#}"),
+            });
+        }
         Ok((id, version))
+    }
+
+    /// Back to the version set aside, its data included; the failed one is dropped and
+    /// remembered, so the desired state does not install it again.
+    async fn switch_back_after_failure(self: &Arc<Self>, id: &str, failed: &str, start: bool) -> Result<()> {
+        let (paths, id_owned, failed_owned) = (self.paths.clone(), id.to_string(), failed.to_string());
+        tokio::task::spawn_blocking(move || -> Result<()> {
+            package::swap_prev(&paths, &id_owned, true)?;
+            package::drop_prev(&paths, &id_owned);
+            package::set_rolled_back(&paths, &id_owned, Some(&failed_owned))
+        })
+        .await??;
+        self.reload(id).await?;
+        if start {
+            self.start_inner(id, true).await?;
+        }
+        Ok(())
+    }
+
+    /// `shellctl rollback`: the installed version and the one set aside swap places (with
+    /// their data unless `keep_data`), so rolling back again returns. The version rolled
+    /// back from is remembered: the desired state does not install it again.
+    pub async fn rollback(self: &Arc<Self>, id: &str, keep_data: bool) -> Result<(String, String)> {
+        let _guard = self.install_lock.lock().await;
+        let installed = self.installed(id).with_context(|| format!("app {id} is not installed"))?;
+        let from = installed.manifest.app.version.clone();
+        let to = installed.previous.clone().with_context(|| format!("{id} has no previous version"))?;
+        let _updating = self.begin_update(id);
+        let was_running = self.worker(id).is_some();
+        if was_running {
+            self.stop(id, StopReason::Update, false).await?;
+        }
+        // Set before the switch, which reads the app again (not after: it may be running then).
+        package::set_rolled_back(&self.paths, id, Some(&from))?;
+        self.swap_prev(id, !keep_data).await?;
+        if let Err(e) = self.try_version(id, was_running).await {
+            package::set_rolled_back(&self.paths, id, installed.rolled_back.as_deref())?;
+            self.swap_prev(id, !keep_data).await?;
+            if was_running {
+                self.start_inner(id, true).await?;
+            }
+            bail!("{to} did not run: {e:#}; {from} is kept");
+        }
+        let data = if keep_data { ", data kept" } else { "" };
+        self.audit.record(id, "rollback", &format!("{from} → {to}{data}"));
+        if let Some(log) = self.app_log(id) {
+            log.write("shell", &format!("rolled back from {from} to {to}{data}"));
+        }
+        Ok((from, to))
+    }
+
+    async fn swap_prev(self: &Arc<Self>, id: &str, data: bool) -> Result<()> {
+        let (paths, id_owned) = (self.paths.clone(), id.to_string());
+        tokio::task::spawn_blocking(move || package::swap_prev(&paths, &id_owned, data)).await??;
+        self.reload(id).await
+    }
+
+    /// Reads the installed app again after its files changed (it is stopped).
+    async fn reload(self: &Arc<Self>, id: &str) -> Result<()> {
+        let (paths, id_owned) = (self.paths.clone(), id.to_string());
+        let installed = tokio::task::spawn_blocking(move || Installed::load(&paths, &id_owned)).await??;
+        self.put_installed(installed);
+        Ok(())
+    }
+
+    /// The app's new files in the registry, keeping its counters and log.
+    fn put_installed(&self, installed: Installed) -> Arc<AppLog> {
+        let id = installed.manifest.app.id.clone();
+        let mut apps = self.apps.lock().unwrap();
+        let log = apps.get(&id).map(|a| a.log.clone()).unwrap_or_else(|| Arc::new(AppLog::new(self.paths.log(&id))));
+        let mut app = App::new(installed, log.clone());
+        if let Some(old) = apps.get(&id) {
+            (app.starts, app.failures, app.last_exit) = (old.starts, old.failures, old.last_exit.clone());
+            app.updating = old.updating;
+        }
+        apps.insert(id, app);
+        log
+    }
+
+    /// Holds other starts off while versions are switched; calls wait for the end.
+    fn begin_update(self: &Arc<Self>, id: &str) -> UpdateGuard {
+        if let Some(app) = self.apps.lock().unwrap().get_mut(id) {
+            app.updating = true;
+        }
+        UpdateGuard { sup: self.clone(), id: id.to_string() }
+    }
+
+    /// Starts the version just switched to and watches it for `[update] probation_s`: it must
+    /// keep running and its `net.listen` ports must accept connections. An app that was not
+    /// running is stopped again afterwards.
+    async fn try_version(self: &Arc<Self>, id: &str, keep_running: bool) -> Result<()> {
+        let result = self.trial(id).await;
+        if self.worker(id).is_some() && (result.is_err() || !keep_running) {
+            self.stop(id, StopReason::Update, result.is_err()).await?;
+        }
+        result
+    }
+
+    async fn trial(self: &Arc<Self>, id: &str) -> Result<()> {
+        self.start_inner(id, true).await?;
+        let worker = self.worker(id).context("not running after its start")?;
+        let probation = Duration::from_secs(self.cfg.update.probation_s.into());
+        let deadline = tokio::time::Instant::now() + probation;
+        let mut waiting: Vec<u16> = if probation.is_zero() { Vec::new() } else { listen_ports(&worker.installed.manifest) };
+        let mut exited = worker.exited.clone();
+        loop {
+            let mut still = Vec::new();
+            for port in waiting {
+                if !accepts(port).await {
+                    still.push(port);
+                }
+            }
+            waiting = still;
+            let now = tokio::time::Instant::now();
+            if now >= deadline {
+                break;
+            }
+            let pause = if waiting.is_empty() { deadline - now } else { Duration::from_millis(250).min(deadline - now) };
+            if tokio::time::timeout(pause, exited.wait_for(|e| *e)).await.is_ok() {
+                let why = self.apps.lock().unwrap().get(id).and_then(|a| a.last_exit.clone()).unwrap_or_default();
+                bail!("it exited during the trial run: {why}");
+            }
+        }
+        ensure!(
+            waiting.is_empty(),
+            "port {} not accepting connections after {} s",
+            waiting.iter().map(u16::to_string).collect::<Vec<_>>().join(", "),
+            probation.as_secs()
+        );
+        Ok(())
     }
 
     /// `net.listen` ports must not collide with Shell's ports or other apps' ports.
@@ -575,9 +725,17 @@ impl Supervisor {
     }
 
     pub async fn start(self: &Arc<Self>, id: &str) -> Result<()> {
+        self.start_inner(id, false).await
+    }
+
+    /// `during_update`: the update's own trial start.
+    async fn start_inner(self: &Arc<Self>, id: &str, during_update: bool) -> Result<()> {
         let (installed, log) = {
             let mut apps = self.apps.lock().unwrap();
             let app = apps.get_mut(id).with_context(|| format!("app {id} is not installed"))?;
+            if app.updating && !during_update {
+                bail!("app {id} is being updated");
+            }
             match app.state {
                 AppState::Stopped | AppState::Failed => {}
                 s => bail!("app {id} is already in state {s}"),
@@ -997,6 +1155,7 @@ impl Supervisor {
                 let app = apps.get(id).ok_or(CallError::NotRunning)?;
                 match (app.state, &app.worker) {
                     (AppState::Running, Some(w)) => return Ok(w.clone()),
+                    _ if app.updating => Next::Wait,
                     (AppState::Stopped, _) => Next::Start,
                     (AppState::Failed, _) => {
                         let backoff = Duration::from_secs(1 << app.failures.min(9)).min(MAX_RESTART_BACKOFF);
@@ -1144,6 +1303,29 @@ fn log_lines(pipe: impl AsyncRead + Unpin + Send + 'static, log: Arc<AppLog>, so
 }
 
 /// Ports declared by the `net.listen` permission in the manifest.
+struct UpdateGuard {
+    sup: Arc<Supervisor>,
+    id: String,
+}
+
+impl Drop for UpdateGuard {
+    fn drop(&mut self) {
+        if let Some(app) = self.sup.apps.lock().unwrap().get_mut(&self.id) {
+            app.updating = false;
+        }
+        self.sup.state_changed.notify_waiters();
+    }
+}
+
+/// Whether something accepts TCP connections on the port of this host.
+async fn accepts(port: u16) -> bool {
+    let connect = |ip: std::net::IpAddr| async move {
+        let addr = std::net::SocketAddr::new(ip, port);
+        matches!(tokio::time::timeout(Duration::from_millis(500), tokio::net::TcpStream::connect(addr)).await, Ok(Ok(_)))
+    };
+    connect(std::net::Ipv4Addr::LOCALHOST.into()).await || connect(std::net::Ipv6Addr::LOCALHOST.into()).await
+}
+
 fn listen_ports(manifest: &shell_core::manifest::Manifest) -> Vec<u16> {
     use shell_core::manifest::PermissionKind;
     manifest

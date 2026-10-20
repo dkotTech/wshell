@@ -70,6 +70,7 @@ impl Supervisor {
         let current: Vec<Current> = self.list().iter().map(Current::from).collect();
         let plan = desired::plan(&desired, &readable, &current, self.cfg.desired.prune)?;
         report.unlisted = plan.unlisted;
+        report.rolled_back = plan.rolled_back;
         let mut failed = BTreeSet::new();
         for step in plan.steps {
             if failed.contains(step.id()) {
@@ -162,6 +163,9 @@ impl Supervisor {
             Ok(r) => {
                 for id in &r.unlisted {
                     tracing::warn!("desired state: {id} is not in {} (kept: [desired] prune = false)", r.file.display());
+                }
+                for app in &r.rolled_back {
+                    tracing::warn!("desired state: {app} was rolled back: not installed again (shellctl install retries it)");
                 }
                 r.errors.is_empty()
             }

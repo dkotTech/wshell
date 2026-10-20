@@ -58,6 +58,10 @@ export interface AppStatus {
   kind: 'app' | 'command' | 'plugin';
   /** `net.listen` ports on which the program accepts connections. */
   ports: number[];
+  /** The version set aside by the last update: a rollback returns to it. */
+  previous_version: string | null;
+  /** A version that was rolled back; the desired state does not install it again. */
+  rolled_back: string | null;
 }
 
 export interface ShellInfo {
@@ -68,6 +72,8 @@ export interface ShellInfo {
   ui_port: number | null;
   cpu_max_percent: number;
   memory_mb: number;
+  /** How long a new version runs on trial before an update counts as done. */
+  update_probation_s: number;
 }
 
 export interface Overview {

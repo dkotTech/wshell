@@ -33,6 +33,13 @@ pub enum Request {
     DashboardUrl,
     /// Bring the installed apps to the desired-state file now (`[desired] file`).
     Reconcile,
+    /// Back to the version before the last update (and forth again); `keep_data`: the
+    /// current storage stays instead of the one set aside with that version.
+    Rollback {
+        id: String,
+        #[serde(default)]
+        keep_data: bool,
+    },
 }
 
 impl Request {
@@ -50,6 +57,7 @@ impl Request {
             Request::Call { .. } => "call",
             Request::DashboardUrl => "dashboard-url",
             Request::Reconcile => "reconcile",
+            Request::Rollback { .. } => "rollback",
         }
     }
 
@@ -61,7 +69,8 @@ impl Request {
             | Request::Stop { id, .. }
             | Request::Url { id }
             | Request::Logs { id, .. }
-            | Request::Call { id, .. } => Some(id),
+            | Request::Call { id, .. }
+            | Request::Rollback { id, .. } => Some(id),
             _ => None,
         }
     }
@@ -76,7 +85,7 @@ impl Request {
 }
 
 const REQUEST_NAMES: &[&str] =
-    &["inspect", "install", "uninstall", "list", "start", "stop", "url", "logs", "call", "dashboard-url", "reconcile"];
+    &["inspect", "install", "uninstall", "list", "start", "stop", "url", "logs", "call", "dashboard-url", "reconcile", "rollback"];
 
 /// Validates an extra socket's rule.
 pub fn check_rule(rule: &str) -> anyhow::Result<()> {
@@ -105,6 +114,7 @@ pub enum Response {
     /// Backend response (JSON).
     CallResult { result: String },
     Reconciled(ReconcileReport),
+    RolledBack { id: String, from: String, to: String },
 }
 
 /// What a pass over the desired-state file did.
@@ -117,6 +127,9 @@ pub struct ReconcileReport {
     pub errors: Vec<String>,
     /// Installed but not in the file, kept without `prune`.
     pub unlisted: Vec<String>,
+    /// Versions not installed because they were rolled back, as `id version`.
+    #[serde(default)]
+    pub rolled_back: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -185,6 +198,12 @@ pub struct AppStatus {
     pub kind: BackendKind,
     /// `net.listen` ports on which the program accepts connections.
     pub ports: Vec<u16>,
+    /// The version set aside by the last update: `shellctl rollback` returns to it.
+    #[serde(default)]
+    pub previous_version: Option<String>,
+    /// A version that was rolled back; the desired state does not install it again.
+    #[serde(default)]
+    pub rolled_back: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -205,6 +224,8 @@ pub enum StopReason {
     User,
     SelfRequested,
     Shutdown,
+    /// Switching versions: an update, its trial run, a rollback.
+    Update,
 }
 
 impl std::fmt::Display for StopReason {
@@ -215,6 +236,7 @@ impl std::fmt::Display for StopReason {
             StopReason::User => "user command",
             StopReason::SelfRequested => "at the app's request",
             StopReason::Shutdown => "Shell shutdown",
+            StopReason::Update => "update",
         })
     }
 }
@@ -242,6 +264,9 @@ pub struct ShellInfo {
     pub ui_port: Option<u16>,
     pub cpu_max_percent: u32,
     pub memory_mb: u32,
+    /// `[update] probation_s`: how long a new version runs on trial.
+    #[serde(default)]
+    pub update_probation_s: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

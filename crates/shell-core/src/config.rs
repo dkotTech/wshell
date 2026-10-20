@@ -25,6 +25,7 @@ pub struct Config {
     pub services: ServicesSection,
     pub registry: RegistrySection,
     pub lifecycle: LifecycleSection,
+    pub update: UpdateSection,
     #[serde(default)]
     pub control: ControlSection,
     #[serde(default)]
@@ -227,6 +228,15 @@ pub struct RegistrySection {
     /// Trusted cosign public keys (PEM files). Not empty: a registry package installs only if
     /// one of them signed it.
     pub keys: Vec<PathBuf>,
+}
+
+/// Replacing an installed app: the new version is tried and rolled back if it fails.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct UpdateSection {
+    /// How long the new version must run (started, its `net.listen` ports accepting) before
+    /// the update counts as done; 0: only the start is checked.
+    pub probation_s: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]

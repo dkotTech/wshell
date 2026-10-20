@@ -52,6 +52,7 @@ pub async fn serve(sup: Arc<Supervisor>) -> Result<()> {
 
     let api = Router::new()
         .route("/overview", get(overview))
+        .route("/apps/{id}/rollback", post(rollback))
         .route("/apps/{id}/{action}", post(app_action))
         .route("/apps/{id}", delete(uninstall))
         .route("/apps/{id}/logs/stream", get(logs_stream))
@@ -138,6 +139,12 @@ async fn page(State(d): St, headers: HeaderMap, req: Request) -> Response {
     (headers, file.data.into_owned()).into_response()
 }
 
+/// Runs a change to completion even if the browser goes away: axum drops a handler whose
+/// connection closed, which would leave an update or a stop half done.
+async fn detached<T: Send + 'static>(f: impl Future<Output = anyhow::Result<T>> + Send + 'static) -> anyhow::Result<T> {
+    tokio::spawn(f).await.map_err(|e| anyhow::anyhow!("{e}"))?
+}
+
 fn app_err(e: anyhow::Error) -> Response {
     web::json_error(StatusCode::UNPROCESSABLE_ENTITY, format!("{e:#}"))
 }
@@ -165,10 +172,11 @@ async fn app_action(State(d): St, Path((id, action)): Path<(String, String)>, Qu
     if !sup.is_installed(&id) {
         return web::json_error(StatusCode::NOT_FOUND, format!("app {id} is not installed"));
     }
+    let (s, i) = (sup.clone(), id.clone());
     let result = match action.as_str() {
-        "start" => sup.start(&id).await,
-        "stop" => sup.stop(&id, StopReason::User, q.force).await,
-        "restart" => sup.restart(&id).await,
+        "start" => detached(async move { s.start(&i).await }).await,
+        "stop" => detached(async move { s.stop(&i, StopReason::User, q.force).await }).await,
+        "restart" => detached(async move { s.restart(&i).await }).await,
         "open" => {
             return match sup.issue_url(&id) {
                 Ok(url) => Json(json!({ "url": url })).into_response(),
@@ -186,8 +194,25 @@ async fn app_action(State(d): St, Path((id, action)): Path<(String, String)>, Qu
     }
 }
 
+#[derive(Deserialize)]
+struct RollbackQuery {
+    /// Keep the current storage instead of the one set aside with the previous version.
+    #[serde(default)]
+    keep_data: bool,
+}
+
+/// The audit log records it (as `shellctl rollback` does).
+async fn rollback(State(d): St, Path(id): Path<String>, Query(q): Query<RollbackQuery>) -> Response {
+    let sup = d.sup.clone();
+    match detached(async move { sup.rollback(&id, q.keep_data).await }).await {
+        Ok((from, to)) => Json(json!({ "from": from, "to": to })).into_response(),
+        Err(e) => app_err(e),
+    }
+}
+
 async fn uninstall(State(d): St, Path(id): Path<String>) -> Response {
-    match d.sup.uninstall(&id).await {
+    let sup = d.sup.clone();
+    match detached(async move { sup.uninstall(&id).await }).await {
         Ok(()) => Json(json!({ "ok": true })).into_response(),
         Err(e) => app_err(e),
     }
@@ -262,7 +287,8 @@ async fn install(State(d): St, Path(upload): Path<String>, Json(body): Json<Inst
     let Some(path) = d.uploads.lock().unwrap().get(&upload).map(|(p, _)| p.clone()) else {
         return web::json_error(StatusCode::NOT_FOUND, "upload not found or expired");
     };
-    let result = d.sup.install(Source::Path(path), body.grant_optional).await;
+    let sup = d.sup.clone();
+    let result = detached(async move { sup.install(Source::Path(path), body.grant_optional).await }).await;
     drop_upload(&d, &upload);
     match result {
         Ok((id, version)) => Json(json!({ "id": id, "version": version })).into_response(),

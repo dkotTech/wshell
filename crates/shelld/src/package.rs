@@ -83,6 +83,14 @@ impl Paths {
     pub fn grants(&self, id: &str) -> PathBuf {
         self.app(id).join("grants.toml")
     }
+    /// The version before the installed one: the target of a rollback.
+    pub fn prev(&self, id: &str) -> PathBuf {
+        self.app(id).join("prev")
+    }
+    /// The version of the app that was rolled back: not installed again by the desired state.
+    pub fn rolled_back(&self, id: &str) -> PathBuf {
+        self.app(id).join("rolled-back")
+    }
     pub fn app_data(&self, id: &str) -> PathBuf {
         self.root.join("data").join(id)
     }
@@ -128,6 +136,10 @@ pub struct Installed {
     pub granted: BTreeSet<String>,
     /// Granted permissions with parameters, parsed once at load time.
     pub grants: Grants,
+    /// The version set aside by the last update, if there is one.
+    pub previous: Option<String>,
+    /// The version that was rolled back, if any.
+    pub rolled_back: Option<String>,
 }
 
 /// Parameters of granted permissions: what host services check on every call.
@@ -205,7 +217,12 @@ impl Installed {
         ensure!(manifest.app.id == id, "id in the manifest does not match the directory");
         let file: GrantsFile = toml::from_str(&fs::read_to_string(paths.grants(id))?)?;
         let grants = Grants::resolve(&manifest, &file.granted)?;
-        Ok(Installed { manifest, pkg_dir, granted: file.granted, grants })
+        let previous = fs::read_to_string(paths.prev(id).join("pkg/app.toml"))
+            .ok()
+            .and_then(|t| Manifest::parse(&t).ok())
+            .map(|m| m.app.version);
+        let rolled_back = fs::read_to_string(paths.rolled_back(id)).ok().map(|v| v.trim().to_string());
+        Ok(Installed { manifest, pkg_dir, granted: file.granted, grants, previous, rolled_back })
     }
 
     pub fn is_granted(&self, key: &str) -> bool {
@@ -399,6 +416,8 @@ fn permission_info(p: &Permission, granted: bool) -> PermissionInfo {
 }
 
 /// Copies the package into the data directory, saves the AOT image and granted permissions.
+/// An installed version is set aside (`prev/`: its package, grants and a copy of its data)
+/// for a rollback; the app must be stopped.
 pub fn install(
     staged: &Staged,
     grant_optional: &[String],
@@ -447,13 +466,13 @@ pub fn install(
     }
 
     let pkg = paths.pkg(id);
-    let old = app_dir.join("pkg.old");
-    let _ = fs::remove_dir_all(&old);
-    if pkg.exists() {
-        fs::rename(&pkg, &old)?;
+    if pkg.exists()
+        && let Err(e) = set_aside(paths, id)
+    {
+        let _ = fs::remove_dir_all(&new_pkg);
+        return Err(e.context("setting the installed version aside"));
     }
     fs::rename(&new_pkg, &pkg)?;
-    let _ = fs::remove_dir_all(&old);
     let _ = fs::remove_file(&staged.cwasm);
 
     let grants = GrantsFile { granted: granted.clone() };
@@ -467,6 +486,73 @@ pub fn install(
     audit.record(id, "install", &m.app.version);
 
     Installed::load(paths, id)
+}
+
+/// The installed version to `prev/`, replacing what was there: the package and grants are
+/// moved, the data copied (the new version starts with it).
+fn set_aside(paths: &Paths, id: &str) -> Result<()> {
+    let prev = paths.prev(id);
+    let _ = fs::remove_dir_all(&prev);
+    fs::create_dir_all(&prev)?;
+    fs::rename(paths.pkg(id), prev.join("pkg"))?;
+    rename_if_exists(&paths.grants(id), &prev.join("grants.toml"))?;
+    let data = paths.app_data(id);
+    if data.exists() {
+        copy_tree(&data, &prev.join("data"))?;
+    }
+    Ok(())
+}
+
+/// Swaps the installed version and the one set aside: package, grants and, with `data`,
+/// storage. Twice is no change: a failed rollback is undone the same way.
+pub fn swap_prev(paths: &Paths, id: &str, data: bool) -> Result<()> {
+    let prev = paths.prev(id);
+    ensure!(prev.join("pkg").is_dir(), "{id} has no previous version");
+    swap(&paths.pkg(id), &prev.join("pkg"))?;
+    swap(&paths.grants(id), &prev.join("grants.toml"))?;
+    if data {
+        swap(&paths.app_data(id), &prev.join("data"))?;
+    }
+    Ok(())
+}
+
+/// After a failed update: the version that failed is not kept.
+pub fn drop_prev(paths: &Paths, id: &str) {
+    let _ = fs::remove_dir_all(paths.prev(id));
+}
+
+/// `version` was rolled back (or `None`: an install went through).
+pub fn set_rolled_back(paths: &Paths, id: &str, version: Option<&str>) -> Result<()> {
+    match version {
+        Some(v) => Ok(crate::util::write_atomic(&paths.rolled_back(id), v.as_bytes())?),
+        None => match fs::remove_file(paths.rolled_back(id)) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.into()),
+            _ => Ok(()),
+        },
+    }
+}
+
+/// Either side may be missing (an app without data).
+fn swap(a: &Path, b: &Path) -> Result<()> {
+    // Appended, not `with_extension`: app ids have dots.
+    let mut tmp = a.as_os_str().to_owned();
+    tmp.push(".swap");
+    let tmp = PathBuf::from(tmp);
+    let _ = fs::remove_dir_all(&tmp);
+    let _ = fs::remove_file(&tmp);
+    rename_if_exists(a, &tmp)?;
+    rename_if_exists(b, a)?;
+    rename_if_exists(&tmp, b)?;
+    Ok(())
+}
+
+fn rename_if_exists(from: &Path, to: &Path) -> Result<()> {
+    match fs::rename(from, to) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+            Err(anyhow::Error::new(e).context(format!("{} → {}", from.display(), to.display())))
+        }
+        _ => Ok(()),
+    }
 }
 
 pub fn uninstall(paths: &Paths, id: &str) -> Result<()> {

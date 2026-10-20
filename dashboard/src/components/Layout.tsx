@@ -158,6 +158,11 @@ export function AppTable() {
                 </div>
                 <div class="app-id">
                   {a.id} · v{a.version}
+                  {a.rolled_back && (
+                    <span class="tag new" title={`${a.rolled_back} was rolled back; the desired state does not install it again`}>
+                      {a.rolled_back} rolled back
+                    </span>
+                  )}
                 </div>
               </td>
               <td>

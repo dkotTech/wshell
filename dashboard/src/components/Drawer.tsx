@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { logStreamUrl } from '../api/client';
 import type { AppStatus } from '../api/types';
-import { STATE_HINT, fmtAge, fmtCpu, isRunning } from '../format';
-import { closeDrawer, cpu, modal, nowSecs, selected, tab } from '../store';
+import { STATE_HINT, fmtAge, fmtCpu, isRunning, isTransitional } from '../format';
+import { closeDrawer, cpu, modal, nowSecs, pending, selected, tab } from '../store';
 import { Actions, MemoryBar, Status, portUrl } from './AppBits';
+import { confirmRollback } from './dialogs';
 
 export function Drawer() {
   const app = selected.value;
@@ -79,6 +80,36 @@ function Overview({ app }: { app: AppStatus }) {
               <Status app={app} /> <span class="muted">{STATE_HINT[app.state]}</span>
             </span>,
           ],
+          [
+            'Version',
+            <span>
+              {app.version}
+              {app.previous_version && (
+                <>
+                  {' '}
+                  <span class="muted">· previous {app.previous_version}</span>{' '}
+                  <button
+                    type="button"
+                    class="btn small"
+                    disabled={pending.value.has(app.id) || isTransitional(app)}
+                    onClick={() => confirmRollback(app)}
+                  >
+                    Roll back
+                  </button>
+                </>
+              )}
+            </span>,
+          ],
+          ...(app.rolled_back
+            ? [
+                [
+                  'Rolled back',
+                  <span class="warning">
+                    {app.rolled_back}: the desired state does not install it again; installing it by hand retries it
+                  </span>,
+                ] as [string, preact.ComponentChildren],
+              ]
+            : []),
           ['PID', app.pid ?? '–'],
           ['Age', app.started_at ? `${fmtAge(nowSecs() - app.started_at)} (since ${new Date(app.started_at * 1000).toLocaleString()})` : '–'],
           ['Starts / failures', `${app.starts} / ${app.failures}`],

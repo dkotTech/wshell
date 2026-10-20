@@ -721,6 +721,8 @@ fn convert_event(ev: HostEvent) -> lifecycle::HostEvent {
                 R::User => lifecycle::StopReason::User,
                 R::SelfRequested => lifecycle::StopReason::SelfRequested,
                 R::Shutdown => lifecycle::StopReason::Shutdown,
+                // The WIT enum has no own case: the closest one.
+                R::Update => lifecycle::StopReason::User,
             };
             lifecycle::HostEvent::StopRequested(lifecycle::StopRequest { reason, grace_ms })
         }

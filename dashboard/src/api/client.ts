@@ -39,9 +39,12 @@ export type Action = 'start' | 'stop' | 'restart';
 
 export const getOverview = () => api<Overview>('GET', '/overview');
 export const appAction = (id: string, action: Action, force = false) =>
-  api<{ ok: true }>('POST', `${app(id)}/${action}${force ? '?force=1' : ''}`);
+  api<{ ok: true }>('POST', `${app(id)}/${action}${force ? '?force=true' : ''}`);
 export const openUrl = (id: string) => api<{ url: string }>('POST', `${app(id)}/open`);
 export const uninstall = (id: string) => api<{ ok: true }>('DELETE', app(id));
+/** Back to the previous version (and forth again): the two swap places. */
+export const rollback = (id: string, keepData: boolean) =>
+  api<{ from: string; to: string }>('POST', `${app(id)}/rollback${keepData ? '?keep_data=true' : ''}`);
 /** Log stream (SSE): the last `tail` lines, then new ones. */
 export const logStreamUrl = (id: string, tail: number) => `/api${app(id)}/logs/stream?tail=${tail}`;
 export const uploadPackage = (file: File) => api<Uploaded>('POST', '/packages', file);

@@ -140,6 +140,8 @@ pub struct Current {
     pub version: String,
     pub running: bool,
     pub granted: BTreeSet<String>,
+    /// A version that was rolled back: not installed again.
+    pub rolled_back: Option<String>,
 }
 
 impl From<&AppStatus> for Current {
@@ -149,6 +151,7 @@ impl From<&AppStatus> for Current {
             version: a.version.clone(),
             running: matches!(a.state, AppState::Starting | AppState::Running | AppState::Suspended),
             granted: a.permissions.iter().filter(|p| p.granted).map(|p| p.key.clone()).collect(),
+            rolled_back: a.rolled_back.clone(),
         }
     }
 }
@@ -191,6 +194,8 @@ pub struct Plan {
     pub unlisted: Vec<String>,
     /// In the state, but their package could not be read: left as they are.
     pub held: Vec<String>,
+    /// `id version`: the version in the state was rolled back, the installed one is kept.
+    pub rolled_back: Vec<String>,
 }
 
 /// Compares the desired state with what is installed. An app missing from `packages` (its
@@ -247,8 +252,12 @@ pub fn plan(
             None => running,
         };
         let install = cur.is_none_or(|c| c.version != pkg.version || c.granted != want);
-        if install {
-            if running {
+        let rolled_back = cur.is_some_and(|c| c.rolled_back.as_ref() == Some(&pkg.version));
+        if install && rolled_back {
+            plan.rolled_back.push(format!("{id} {}", pkg.version));
+        } else if install {
+            // An update keeps a running app running (and rolls back if the new version fails).
+            if running && !want_running {
                 plan.steps.push(Step::Stop { id: id.clone() });
             }
             plan.steps.push(Step::Install {
@@ -258,10 +267,12 @@ pub fn plan(
                 from: cur.map(|c| c.version.clone()),
                 version: pkg.version.clone(),
             });
-            if want_running {
+            if want_running && !running {
                 plan.steps.push(Step::Start { id: id.clone() });
             }
-        } else if want_running && !running {
+            continue;
+        }
+        if want_running && !running {
             plan.steps.push(Step::Start { id: id.clone() });
         } else if !want_running && running {
             plan.steps.push(Step::Stop { id: id.clone() });
@@ -300,6 +311,7 @@ mod tests {
             version: version.into(),
             running,
             granted: granted.iter().map(|s| s.to_string()).collect(),
+            rolled_back: None,
         }
     }
 
@@ -340,7 +352,7 @@ mod tests {
     }
 
     #[test]
-    fn update_stops_and_restarts() {
+    fn update_keeps_running() {
         let s = DesiredState::parse(STATE, Path::new("/")).unwrap();
         let cur = [
             current("org.example.ping", "0.1.0", true, &["exec:ping", "exec:tracepath"]),
@@ -348,8 +360,15 @@ mod tests {
         ];
         assert_eq!(
             names(&plan(&s, &packages(), &cur, false).unwrap()),
-            ["stop org.example.ping", "update org.example.ping 0.1.0 → 0.2.0", "start org.example.ping"]
+            ["update org.example.ping 0.1.0 → 0.2.0"]
         );
+        // A version that was rolled back is not installed again; the run state still counts.
+        let mut cur = cur;
+        cur[0].rolled_back = Some("0.2.0".into());
+        cur[0].running = false;
+        let plan = plan(&s, &packages(), &cur, false).unwrap();
+        assert_eq!(names(&plan), ["start org.example.ping"]);
+        assert_eq!(plan.rolled_back, ["org.example.ping 0.2.0"]);
     }
 
     #[test]

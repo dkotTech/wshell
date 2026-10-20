@@ -137,6 +137,10 @@ async fn handle(sup: &Arc<Supervisor>, req: Request) -> Result<Response> {
         }
         Request::DashboardUrl => Response::Url { url: sup.issue_dashboard_url()? },
         Request::Reconcile => Response::Reconciled(sup.reconcile().await?),
+        Request::Rollback { id, keep_data } => {
+            let (from, to) = sup.rollback(&id, keep_data).await?;
+            Response::RolledBack { id, from, to }
+        }
         Request::Logs { .. } => unreachable!("handled in the client"),
     })
 }
