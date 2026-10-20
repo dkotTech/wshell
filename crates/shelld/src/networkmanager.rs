@@ -3,6 +3,7 @@
 
 use std::collections::HashMap;
 use std::net::{Ipv4Addr, Ipv6Addr};
+use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use zbus::proxy::{CacheProperties, Defaults};
@@ -16,6 +17,10 @@ const NONE: ObjectPath<'static> = ObjectPath::from_static_str_unchecked("/");
 const WIFI: u32 = 2;
 /// `NM_802_11_AP_FLAGS_PRIVACY`: WEP or better.
 const AP_PRIVACY: u32 = 0x1;
+/// `NM_ACTIVE_CONNECTION_STATE_ACTIVATED`; later states mean it failed or ended.
+const ACTIVATED: u32 = 2;
+/// How long a new Wi-Fi profile may take to connect before it counts as failed.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(90);
 /// `NM_802_11_AP_SEC_KEY_MGMT_PSK` and `_SAE` in the WPA and RSN flags.
 const KEY_MGMT_PSK: u32 = 0x100;
 const KEY_MGMT_SAE: u32 = 0x400;
@@ -117,6 +122,8 @@ trait Ip6Config {
 trait Active {
     #[zbus(property)]
     fn id(&self) -> zbus::Result<String>;
+    #[zbus(property)]
+    fn state(&self) -> zbus::Result<u32>;
 }
 
 #[zbus::proxy(
@@ -126,6 +133,7 @@ trait Active {
 trait Profile {
     /// Without secrets.
     fn get_settings(&self) -> zbus::Result<HashMap<String, HashMap<String, OwnedValue>>>;
+    fn delete(&self) -> zbus::Result<()>;
 }
 
 pub async fn connect() -> Result<zbus::Connection> {
@@ -294,8 +302,8 @@ async fn networks(conn: &zbus::Connection, wireless: &WirelessProxy<'_>) -> Resu
 }
 
 /// The device's saved Wi-Fi profiles by network name.
-async fn saved(conn: &zbus::Connection, device: &OwnedObjectPath) -> Result<HashMap<String, OwnedObjectPath>> {
-    let mut saved = HashMap::new();
+async fn saved(conn: &zbus::Connection, device: &OwnedObjectPath) -> Result<HashMap<String, Vec<OwnedObjectPath>>> {
+    let mut saved: HashMap<String, Vec<OwnedObjectPath>> = HashMap::new();
     for path in at::<DeviceProxy>(conn, device).await?.available_connections().await? {
         let settings = at::<ProfileProxy>(conn, &path).await?.get_settings().await.map_err(explain)?;
         let ssid = settings
@@ -303,7 +311,7 @@ async fn saved(conn: &zbus::Connection, device: &OwnedObjectPath) -> Result<Hash
             .and_then(|w| w.get("ssid"))
             .and_then(|s| Vec::<u8>::try_from(s.try_clone().ok()?).ok());
         if let Some(ssid) = ssid {
-            saved.insert(String::from_utf8_lossy(&ssid).into_owned(), path);
+            saved.entry(String::from_utf8_lossy(&ssid).into_owned()).or_default().push(path);
         }
     }
     Ok(saved)
@@ -337,14 +345,17 @@ pub async fn disconnect(conn: &zbus::Connection, device: &str) -> Result<()> {
 }
 
 /// Without a password, with the saved profile of the network; with one, with a new profile
-/// (NetworkManager saves it). Like `nmcli device wifi connect`.
+/// (NetworkManager saves it). Like `nmcli device wifi connect`, the new profile is removed if
+/// it does not connect (a mistyped password is not kept), and replaces the network's older
+/// profiles if it does (a changed password). Returns once the connection is started.
 pub async fn connect_wifi(conn: &zbus::Connection, device: &str, ssid: &str, password: Option<&str>) -> Result<()> {
     let (path, wireless) = wifi_device(conn, device).await?;
     let m = ManagerProxy::new(conn).await?;
+    let older = saved(conn, &path).await?.remove(ssid).unwrap_or_default();
     if password.is_none()
-        && let Some(profile) = saved(conn, &path).await?.remove(ssid)
+        && let Some(profile) = older.first()
     {
-        return m.activate_connection(&profile, &path, &NONE).await.map(drop).map_err(explain);
+        return m.activate_connection(profile, &path, &NONE).await.map(drop).map_err(explain);
     }
     let networks = networks(conn, &wireless).await?;
     let Some(network) = networks.iter().find(|n| n.ap.ssid == ssid) else {
@@ -368,7 +379,50 @@ pub async fn connect_wifi(conn: &zbus::Connection, device: &str, ssid: &str, pas
             HashMap::from([("key-mgmt", Value::from(key_mgmt)), ("psk", Value::from(password))]),
         );
     }
-    m.add_and_activate_connection(settings, &path, &network.path).await.map(drop).map_err(explain)
+    let (profile, active) = m.add_and_activate_connection(settings, &path, &network.path).await.map_err(explain)?;
+    tokio::spawn(keep_if_connected(conn.clone(), ssid.to_string(), profile, active, older));
+    Ok(())
+}
+
+/// Waits for a new profile's connection: removes the profile if it fails, or the older ones of
+/// the network if it succeeds.
+async fn keep_if_connected(
+    conn: zbus::Connection,
+    ssid: String,
+    profile: OwnedObjectPath,
+    active: OwnedObjectPath,
+    older: Vec<OwnedObjectPath>,
+) {
+    let deadline = tokio::time::Instant::now() + CONNECT_TIMEOUT;
+    let connected = loop {
+        // Gone (NetworkManager drops a failed connection) reads as an error.
+        let state = match at::<ActiveProxy>(&conn, &active).await {
+            Ok(a) => a.state().await.ok(),
+            Err(_) => None,
+        };
+        match state {
+            Some(ACTIVATED) => break true,
+            Some(s) if s < ACTIVATED && tokio::time::Instant::now() < deadline => {
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
+            _ => break false,
+        }
+    };
+    let remove = if connected {
+        older
+    } else {
+        tracing::warn!("Wi-Fi {ssid}: did not connect (a wrong password?); its new profile is removed");
+        vec![profile]
+    };
+    for path in remove {
+        let deleted = match at::<ProfileProxy>(&conn, &path).await {
+            Ok(p) => p.delete().await.map_err(explain),
+            Err(e) => Err(e),
+        };
+        if let Err(e) = deleted {
+            tracing::warn!("Wi-Fi {ssid}: removing profile {}: {e:#}", path.as_str());
+        }
+    }
 }
 
 /// NetworkManager's errors as they are, with a hint for the usual one of a system service.

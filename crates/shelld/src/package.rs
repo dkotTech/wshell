@@ -281,6 +281,9 @@ pub fn stage(path: &Path, paths: &Paths, cfg: &Config, engine: &Engine) -> Resul
 fn unpack(archive: &Path, dest: &Path) -> Result<()> {
     let file = fs::File::open(archive)?;
     let mut ar = tar::Archive::new(file);
+    // A later entry would replace an earlier one: what was checked before unpacking (the
+    // manifest a desired-state plan read) must be what gets installed.
+    let mut files = std::collections::HashSet::new();
     for entry in ar.entries()? {
         let mut entry = entry?;
         let kind = entry.header().entry_type();
@@ -288,6 +291,11 @@ fn unpack(archive: &Path, dest: &Path) -> Result<()> {
         ensure!(
             kind.is_file() || kind.is_dir(),
             "entry {} ({kind:?}) is not allowed in a package",
+            path.display()
+        );
+        ensure!(
+            kind.is_dir() || files.insert(shell_core::desired::archive_path(&path)),
+            "{} is more than once in the package",
             path.display()
         );
         ensure!(entry.unpack_in(dest)?, "invalid path in package: {}", path.display());

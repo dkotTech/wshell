@@ -1,7 +1,10 @@
 //! Packages from OCI registries: the pull side of the distribution API. A manifest, then its one
-//! `.pkg` layer, each checked against its sha256 digest. Blobs are cached by digest: a
-//! reference pinned to a digest is downloaded once, and a desired-state file naming a tag only
-//! reads the manifest again.
+//! `.pkg` layer, each checked against its sha256 digest. Blobs are cached by digest, and so is
+//! the signature that was accepted: a reference pinned to a digest is downloaded and its
+//! signature fetched once (later pulls need no network), and a desired-state file naming a tag
+//! only reads the manifest again.
+//!
+//! The registry is not trusted with shelld's memory: every answer is read up to a bound.
 //!
 //! Anonymous access only for now (public packages): token auth as ghcr.io, Docker Hub and
 //! most registries do it for pulls.
@@ -30,8 +33,8 @@ const ACCEPT_MANIFESTS: &str = "application/vnd.oci.image.manifest.v1+json, \
     application/vnd.docker.distribution.manifest.list.v2+json";
 const INDEX: &str = "application/vnd.oci.image.index.v1+json";
 const MAX_MANIFEST: usize = 1 << 20;
-/// Signatures looked at per package.
-const MAX_SIGNATURES: usize = 16;
+/// Signature manifests and bundles fetched per package, all together.
+const MAX_SIGNATURE_FETCHES: usize = 16;
 /// Cached blobs unused for this long are removed.
 const KEEP: Duration = Duration::from_secs(30 * 24 * 3600);
 
@@ -105,7 +108,7 @@ pub async fn pull(
     ensure!(valid_digest(&layer.digest), "invalid layer digest {}", layer.digest);
     let signer = match keys {
         [] => None,
-        keys => Some(verify(&mut session, &digest, keys).await.with_context(|| r.pinned(&digest).to_string())?),
+        keys => Some(signer(&mut session, cache, &digest, keys).await.with_context(|| r.pinned(&digest).to_string())?),
     };
     let max = u64::from(cfg.max_package_mb) << 20;
     ensure!(layer.size <= max, "the package is {} MB, over registry.max_package_mb", layer.size >> 20);
@@ -120,18 +123,22 @@ pub async fn pull(
     Ok(Pulled { path, pinned: r.pinned(&digest), signer })
 }
 
-async fn verify(session: &mut Session<'_>, digest: &str, keys: &[TrustedKey]) -> Result<PathBuf> {
-    let bundles = session.bundles(digest).await?;
-    ensure!(!bundles.is_empty(), "not signed (registry.keys requires a signature: cosign sign --key)");
-    let mut errors = Vec::new();
-    for b in &bundles {
-        match crate::signature::verify_bundle(b, digest, keys) {
-            Ok(key) => return Ok(key.file.clone()),
-            Err(e) => errors.push(format!("{e:#}")),
-        }
+/// The key that signed the manifest: the signature accepted before (checked again, against
+/// the keys of now), or one from the registry, which is then kept.
+async fn signer(session: &mut Session<'_>, cache: &Path, digest: &str, keys: &[TrustedKey]) -> Result<PathBuf> {
+    let kept = blob_path(cache, digest).with_extension("bundle");
+    if let Ok(bundle) = fs::read(&kept)
+        && let Ok(key) = crate::signature::verify_bundle(&bundle, digest, keys)
+    {
+        touch(&kept);
+        return Ok(key.file.clone());
     }
-    errors.dedup();
-    bail!("no valid signature by a trusted key: {}", errors.join("; "))
+    let (key, bundle) = session.signature(digest, keys).await?;
+    fs::create_dir_all(kept.parent().unwrap())?;
+    let tmp = kept.with_extension(format!("part-{}", crate::util::token()));
+    fs::write(&tmp, &bundle)?;
+    fs::rename(&tmp, &kept)?;
+    Ok(key)
 }
 
 /// Removes the cached blobs nobody used for a month.
@@ -162,6 +169,18 @@ fn sha256(bytes: &[u8]) -> String {
 
 fn content_type(resp: &reqwest::Response) -> &str {
     resp.headers().get(reqwest::header::CONTENT_TYPE).and_then(|v| v.to_str().ok()).unwrap_or("")
+}
+
+/// The body, refused past `max` bytes: before reading when the length is announced, while
+/// reading otherwise.
+async fn read_limited(mut resp: reqwest::Response, max: usize) -> Result<Vec<u8>> {
+    ensure!(resp.content_length().is_none_or(|n| n <= max as u64), "the registry's answer is too large");
+    let mut body = Vec::new();
+    while let Some(chunk) = resp.chunk().await? {
+        ensure!(body.len() + chunk.len() <= max, "the registry's answer is too large");
+        body.extend_from_slice(&chunk);
+    }
+    Ok(body)
 }
 
 fn touch(path: &Path) {
@@ -259,16 +278,15 @@ impl<'a> Session<'a> {
             token: Option<String>,
             access_token: Option<String>,
         }
-        let body = self
+        let resp = self
             .client
             .get(&realm)
             .query(&query)
             .send()
             .await
             .and_then(|r| r.error_for_status())
-            .with_context(|| format!("token from {realm}"))?
-            .bytes()
-            .await?;
+            .with_context(|| format!("token from {realm}"))?;
+        let body = read_limited(resp, MAX_MANIFEST).await.with_context(|| format!("token from {realm}"))?;
         let t: Token = serde_json::from_slice(&body).context("the registry's token answer")?;
         t.token.or(t.access_token).context("no token in the registry's answer")
     }
@@ -283,13 +301,12 @@ impl<'a> Session<'a> {
             "{}: not a wshell package (got {kind}; push it with oras, see README)",
             self.reference
         );
-        let bytes = resp.bytes().await?;
-        ensure!(bytes.len() <= MAX_MANIFEST, "manifest too large");
+        let bytes = read_limited(resp, MAX_MANIFEST).await.context("manifest")?;
         let digest = sha256(&bytes);
         if let Some(pinned) = &self.reference.digest {
             ensure!(&digest == pinned, "{}: the registry returned a manifest with digest {digest}", self.reference);
         }
-        Ok((bytes.to_vec(), digest))
+        Ok((bytes, digest))
     }
 
     /// A small blob or manifest by digest, checked against it.
@@ -297,43 +314,59 @@ impl<'a> Session<'a> {
         ensure!(valid_digest(digest), "invalid digest {digest}");
         let url = format!("{}/{kind}/{digest}", self.base);
         let resp = self.get(&url, accept).await?;
-        ensure!(resp.content_length().unwrap_or(0) <= MAX_MANIFEST as u64, "{digest} is too large");
-        let bytes = resp.bytes().await?;
-        ensure!(bytes.len() <= MAX_MANIFEST && sha256(&bytes) == digest, "{digest}: content does not match its digest");
-        Ok(bytes.to_vec())
+        let bytes = read_limited(resp, MAX_MANIFEST).await.with_context(|| digest.to_string())?;
+        ensure!(sha256(&bytes) == digest, "{digest}: content does not match its digest");
+        Ok(bytes)
     }
 
-    /// The sigstore bundles attached to `digest`: through the referrers API, or the fallback
-    /// tag `sha256-<hex>` of registries without it (OCI 1.1).
-    async fn bundles(&mut self, digest: &str) -> Result<Vec<Vec<u8>>> {
+    /// A sigstore bundle attached to `digest` that a trusted key signed, and that key: found
+    /// through the referrers API, or the fallback tag `sha256-<hex>` of registries without it
+    /// (OCI 1.1). Each bundle is checked as soon as it arrives, and the fetches are bounded
+    /// all together: a registry may ignore the filter and list any number of referrers and
+    /// layers.
+    async fn signature(&mut self, digest: &str, keys: &[TrustedKey]) -> Result<(PathBuf, Vec<u8>)> {
         let url = format!("{}/referrers/{digest}?artifactType={}", self.base, crate::signature::BUNDLE_TYPE);
         let mut index = match self.send(&url, INDEX).await {
-            Ok(Some(resp)) if content_type(&resp).starts_with(INDEX) => Some(resp.bytes().await?),
+            Ok(Some(resp)) if content_type(&resp).starts_with(INDEX) => Some(read_limited(resp, MAX_MANIFEST).await?),
             _ => None,
         };
         if index.is_none() {
             let url = format!("{}/manifests/{}", self.base, digest.replace(':', "-"));
             if let Some(resp) = self.send(&url, INDEX).await? {
-                index = Some(resp.bytes().await?);
+                index = Some(read_limited(resp, MAX_MANIFEST).await.context("referrers index")?);
             }
         }
-        let Some(index) = index else { return Ok(Vec::new()) };
-        ensure!(index.len() <= MAX_MANIFEST, "referrers index too large");
+        const UNSIGNED: &str = "not signed (registry.keys requires a signature: cosign sign --key)";
+        let Some(index) = index else { bail!(UNSIGNED) };
         let index: Index = serde_json::from_slice(&index).context("referrers index")?;
-        let mut bundles = Vec::new();
-        // A registry may ignore the filter; a bound keeps a flood of referrers cheap.
+        let mut budget = MAX_SIGNATURE_FETCHES;
+        let mut errors = Vec::new();
         let refs = index.manifests.iter().filter(|m| m.artifact_type.as_deref() == Some(crate::signature::BUNDLE_TYPE));
-        for m in refs.take(MAX_SIGNATURES) {
+        'referrers: for m in refs {
+            if budget == 0 {
+                break;
+            }
+            budget -= 1;
             let bytes = self.fetch_verified("manifests", &m.digest, MANIFEST).await?;
             let manifest: Referrer = serde_json::from_slice(&bytes).context("signature manifest")?;
             if manifest.subject.as_ref().map(|s| s.digest.as_str()) != Some(digest) {
                 continue;
             }
             for layer in manifest.layers.iter().filter(|l| l.media_type == crate::signature::BUNDLE_TYPE) {
-                bundles.push(self.fetch_verified("blobs", &layer.digest, "*/*").await?);
+                if budget == 0 {
+                    break 'referrers;
+                }
+                budget -= 1;
+                let bundle = self.fetch_verified("blobs", &layer.digest, "*/*").await?;
+                match crate::signature::verify_bundle(&bundle, digest, keys) {
+                    Ok(key) => return Ok((key.file.clone(), bundle)),
+                    Err(e) => errors.push(format!("{e:#}")),
+                }
             }
         }
-        Ok(bundles)
+        ensure!(!errors.is_empty(), UNSIGNED);
+        errors.dedup();
+        bail!("no valid signature by a trusted key: {}", errors.join("; "))
     }
 
     /// Streams the layer to the cache, checking its size and digest.

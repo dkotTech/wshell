@@ -478,12 +478,28 @@ impl Supervisor {
     }
 
     pub async fn install(self: &Arc<Self>, source: Source, grant_optional: Vec<String>) -> Result<(String, String)> {
-        let (path, source, signed_by) = self.fetch(&source).await?;
+        let fetched = self.fetch(&source).await?;
+        self.install_fetched(fetched, grant_optional, None).await
+    }
+
+    /// What `fetch` returned. `expect`: the app the package must hold, as a desired-state plan
+    /// read it (a local file may have changed since).
+    pub async fn install_fetched(
+        self: &Arc<Self>,
+        (path, source, signed_by): (PathBuf, Source, Option<String>),
+        grant_optional: Vec<String>,
+        expect: Option<String>,
+    ) -> Result<(String, String)> {
         let _guard = self.install_lock.lock().await;
         let this = self.clone();
         let installed = tokio::task::spawn_blocking(move || -> Result<Installed> {
             let staged = package::stage(&path, &this.paths, &this.cfg, &this.engine)?;
             let id = staged.manifest.app.id.clone();
+            if let Some(expect) = expect
+                && expect != id
+            {
+                bail!("the package now holds app {id}, not {expect}");
+            }
             if this.worker(&id).is_some() {
                 bail!("app {id} is running; stop it before updating");
             }

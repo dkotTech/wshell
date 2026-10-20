@@ -12,6 +12,7 @@ let current = null; // the open device's name; null for the list
 let devices = [];
 let armed = null; // a disconnect waiting for the second press
 let passwordFor = null; // the network the password form is for
+let tried = null; // the network last connected to with its saved password
 
 function showError(e) {
   $("error").textContent = e ? String(e.message ?? e) : "";
@@ -111,6 +112,7 @@ function renderDevice(d, aps) {
 
   $("wifi").hidden = d.kind !== "wifi";
   if (d.kind !== "wifi") return;
+  if (aps.some((ap) => ap.active && ap.ssid === tried)) tried = null; // it connected
   const items = aps.map((ap) => {
     const li = el("li", { tabIndex: 0, className: [ap.active && "connected", ap.secured && "secured"].filter(Boolean).join(" ") });
     li.dataset.key = ap.ssid;
@@ -128,7 +130,11 @@ function renderDevice(d, aps) {
 
 function choose(device, ap) {
   if (ap.active) return;
-  if (ap.secured && !ap.saved) {
+  // A saved network connects with its saved password; pressed again (it did not connect,
+  // the password changed), it asks for a new one.
+  const retry = tried === ap.ssid;
+  tried = ap.ssid;
+  if (ap.secured && (!ap.saved || retry)) {
     passwordFor = { device, ssid: ap.ssid };
     $("password-ssid").textContent = ap.ssid;
     $("password").value = "";

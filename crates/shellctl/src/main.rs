@@ -2,6 +2,7 @@
 
 #![forbid(unsafe_code)]
 
+use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, IsTerminal, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
@@ -288,7 +289,10 @@ fn apply(conn: &mut Conn, file: &Path, prune: bool, dry_run: bool) -> Result<()>
         let Source::Oci(pinned) = info.source else { bail!("unexpected response from shelld") };
         let permissions = info.permissions.iter().map(|p| (p.key.clone(), p.optional)).collect();
         Ok((Package { id: info.id, version: info.version, permissions }, pinned))
-    })?;
+    });
+    // Here every package must be read: the user is watching and can fix the file.
+    let packages: BTreeMap<String, Package> =
+        packages.into_iter().map(|(id, p)| p.map(|p| (id, p))).collect::<Result<_>>()?;
     let Response::Apps { apps } = conn.request(&Request::List)? else {
         bail!("unexpected response from shelld");
     };

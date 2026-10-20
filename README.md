@@ -90,8 +90,9 @@ shellctl apply --prune apps.toml   # also uninstall apps the file does not list 
 - **The file is the consent.** Required permissions come with the install and the optional ones
   are exactly `grant`, without questions (like `install --yes`).
 - **Updates** stop a running app, install, and start it again unless `state = "stopped"`.
-- Unlisted apps are only reported unless `--prune` is given. The first error stops `apply`;
-  the steps before it stay applied.
+- Unlisted apps are only reported unless `--prune` is given. A file that lists no apps never
+  prunes: it is more likely truncated than meant (uninstall them one by one). The first error
+  stops `apply`; the steps before it stay applied.
 - `apply` compares the file with `shellctl list`, reading only `app.toml` from the packages.
 
 **Kept by shelld.** With the file in the config, shelld applies it itself:
@@ -104,9 +105,16 @@ prune = false                    # also uninstall apps the file does not list
 
 - On start, when the file changes (inotify on its directory, so `git pull`, `sed -i` and editors
   that replace the file all count) and on `shellctl reconcile`, which prints what was done.
-- A broken file (invalid TOML, a missing package, a wrong `grant`) changes nothing; the error
-  goes to the log and to `shellctl reconcile`. A step that fails skips that app's remaining steps;
-  the other apps go on.
+- A broken file (invalid TOML, a wrong `grant`, a file still being written) changes nothing; the
+  error goes to the log and to `shellctl reconcile`. An app whose package cannot be read (a
+  missing file, a registry out of reach) is left as it is, and a step that fails skips that
+  app's remaining steps; the other apps go on.
+- After a pass with errors shelld tries again in 30 s, then 1, 2… up to 10 minutes, so a device
+  that boots before its network catches up by itself.
+- With `prune = true`, replace the file by a rename (`git`, most editors, `mv`) rather than
+  writing it in place: a write cut short (a full disk) leaves a valid file listing fewer apps,
+  and the missing ones would be uninstalled with their data. A file that lists no apps never
+  prunes.
 - Not continuous: an idle stop, an eviction or a manual `shellctl stop` holds until the next pass,
   so `state = "running"` means "running after each pass", not "always".
 
@@ -134,8 +142,11 @@ package = "oci://ghcr.io/acme/ping:stable"   # a new version under the tag is in
 - shelld pulls, not `shellctl`: the manifest and the layer, both checked against their sha256
   digests. The install takes the artifact the permissions were shown for, even if the tag has
   moved in between; the audit log records the exact `…@sha256:` reference.
-- Pulled blobs are cached by digest under `<data_dir>/registry` and removed after a month
-  unused: a desired-state file naming a tag only re-reads its manifest on each pass.
+- Pulled blobs are cached by digest under `<data_dir>/registry`, with the signature accepted for
+  them, and removed after a month unused: a reference pinned to a digest needs the network once,
+  and a desired-state file naming a tag only re-reads its manifest on each pass.
+- The registry is not trusted with shelld's memory: manifests, tokens and signatures are read
+  up to 1 MiB each, at most 16 signature fetches per package, and the layer is streamed to disk.
 - The registry is always written out (`docker.io/…`, not `…`). HTTPS, except `localhost` and
   `[registry] insecure = ["host:port"]`; packages up to `[registry] max_package_mb`.
 - Not yet: private registries (logins).
@@ -157,7 +168,10 @@ keys = ["/etc/wshell/keys/acme.pub"]   # any of them; none: signatures are not c
   the `sha256-<hex>` tag on registries without it). shelld checks the ECDSA P-256 signature of
   its DSSE envelope and that the signed statement names the package's manifest digest, which in
   turn names the layer: the whole package is covered. This happens before the layer is
-  downloaded; `install` shows `signed by …` and the audit log records the key.
+  downloaded; `install` shows `signed by …` and the audit log records the key. The accepted
+  bundle is cached with the package and checked again, against the keys of the moment, on later
+  pulls: no network for a pinned reference, and a key removed from the config is no longer
+  trusted.
 - Only the key is checked, not the transparency log (like `cosign verify --insecure-ignore-tlog`):
   trust comes from the configured keys. Keyless (OIDC) signatures are not supported.
 - Local `.pkg` files and directories are not checked: installing them is the operator's own act.
@@ -291,7 +305,11 @@ browser ──HTTP/WS, loopback──▶ │  ├─ package manager: manifest a
 - **Worker sandbox.** In case a guest escapes Wasmtime, the worker process is confined by the
   kernel too (`[sandbox] mode = "auto"`), set up at its start before any thread:
   - *namespaces*: its own user namespace (no capabilities outside it, even under a root
-    shelld), IPC and, without `net.listen`, an empty network;
+    shelld), IPC and, without `net.listen`, an empty network. A `net.listen` port below
+    `net.ipv4.ip_unprivileged_port_start` (80, 443) needs `CAP_NET_BIND_SERVICE` in the host's
+    network, which a user namespace takes away: when shelld has it (root, or
+    `AmbientCapabilities=CAP_NET_BIND_SERVICE`), such a worker skips the user namespace and keeps
+    that one capability, dropping every other (also from the bounding set);
   - *Landlock*: files only for reading and only in the app's package directory; TCP bind only on
     the `net.listen` ports, no connect; no signals or abstract UNIX sockets outside the sandbox;
   - *seccomp*: `EPERM` for what a worker never needs: exec, ptrace, mount, bpf, kernel modules,
@@ -401,8 +419,11 @@ net.connect_wifi("wlan0", "Home", Some("secret"))?;   // manage: a new profile, 
 
 - Changes need `mode = "manage"`; with `read` they are denied and audited, like every change
   (the Wi-Fi password never reaches the logs).
-- `connect-wifi` without a password uses the network's saved profile. WPA/WPA2/WPA3 personal
-  only: no WEP, no 802.1X.
+- `connect-wifi` without a password uses the network's saved profile. With one it makes a new
+  profile; as with `nmcli device wifi connect`, the profile is removed if it does not connect
+  within 90 s (a mistyped password is not kept) and replaces the network's older profiles if it
+  does (a changed password). The call returns once the connection is started. WPA/WPA2/WPA3
+  personal only: no WEP, no 802.1X.
 - shelld normally runs as a non-root user outside a login session, so polkit decides what it
   may change:
 

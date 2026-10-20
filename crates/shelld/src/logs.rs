@@ -91,10 +91,29 @@ impl Audit {
         Audit { file: Mutex::new(open_private(path).ok()) }
     }
 
+    /// One line per entry: details often hold what an app sent (a unit, a device name), so
+    /// control characters are escaped and cannot start a forged line.
     pub fn record(&self, app: &str, event: &str, detail: &str) {
-        tracing::info!(target: "audit", app, event, detail);
+        let (app, event, detail) = (escape(app), escape(event), escape(detail));
+        tracing::info!(target: "audit", app = &*app, event = &*event, detail = &*detail);
         if let Some(f) = self.file.lock().unwrap().as_mut() {
             let _ = writeln!(f, "{} {app} {event} {detail}", now_utc());
         }
+    }
+}
+
+fn escape(s: &str) -> std::borrow::Cow<'_, str> {
+    if !s.chars().any(char::is_control) {
+        return s.into();
+    }
+    s.chars().map(|c| if c.is_control() { c.escape_default().to_string() } else { c.to_string() }).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn audit_lines_are_not_forged() {
+        assert_eq!(super::escape("a.service"), "a.service");
+        assert_eq!(super::escape("x\n2026 other uninstall -\r\u{1b}"), "x\\n2026 other uninstall -\\r\\u{1b}");
     }
 }

@@ -6,6 +6,10 @@
 //!
 //! - **Namespaces.** A user namespace (no capabilities outside it), its own IPC and, without
 //!   `net.listen`, its own empty network: no interfaces, no abstract UNIX sockets of the host.
+//!   A `net.listen` port below `net.ipv4.ip_unprivileged_port_start` (80, 443) needs
+//!   `CAP_NET_BIND_SERVICE` in the host's network, which a user namespace would take away: when
+//!   shelld has it (root, or `AmbientCapabilities=`), such a worker keeps that one capability
+//!   and drops every other instead of entering a user namespace.
 //! - **Landlock.** Files: reading the app's package directory only. TCP: bind only on the
 //!   `net.listen` ports, no connect. No signals or abstract UNIX sockets outside the sandbox.
 //! - **seccomp.** System calls a worker never needs fail with `EPERM`: exec, ptrace, mount,
@@ -36,8 +40,19 @@ pub fn enter(spec: &Spec) -> Result<Vec<String>> {
     }
     let own_net = spec.listen.is_empty();
     let mut missing = Vec::new();
-    if let Err(e) = namespaces(own_net) {
-        missing.push(format!("namespaces: {e:#}"));
+    let low = spec.listen.iter().copied().filter(|&p| p < unprivileged_port_start()).min();
+    match low {
+        Some(port) if has_bind_capability() => {
+            eprintln!("sandbox: port {port} needs CAP_NET_BIND_SERVICE: kept, every other capability dropped");
+            if let Err(e) = keep_bind_capability() {
+                missing.push(format!("namespaces: {e:#}"));
+            }
+        }
+        _ => {
+            if let Err(e) = namespaces(own_net) {
+                missing.push(format!("namespaces: {e:#}"));
+            }
+        }
     }
     if let Err(e) = landlock(spec) {
         missing.push(format!("Landlock: {e:#}"));
@@ -109,6 +124,40 @@ fn namespaces(own_net: bool) -> Result<()> {
         flags |= F::CLONE_NEWNET;
     }
     unshare(flags).context("unshare (are unprivileged user namespaces disabled?)")?;
+    Ok(())
+}
+
+/// `net.ipv4.ip_unprivileged_port_start` of the host's network.
+fn unprivileged_port_start() -> u16 {
+    std::fs::read_to_string("/proc/sys/net/ipv4/ip_unprivileged_port_start")
+        .ok()
+        .and_then(|s| s.trim().parse().ok())
+        .unwrap_or(1024)
+}
+
+fn has_bind_capability() -> bool {
+    use rustix::thread::{CapabilitySet, capabilities};
+    capabilities(None).is_ok_and(|c| c.effective.contains(CapabilitySet::NET_BIND_SERVICE))
+}
+
+/// Instead of a user namespace: its own IPC (when allowed) and no capability but binding
+/// low ports, now or after an `exec` (the bounding set).
+fn keep_bind_capability() -> Result<()> {
+    use rustix::thread::{
+        CapabilitySet as C, CapabilitySets, clear_ambient_capability_set, remove_capability_from_bounding_set,
+        set_capabilities,
+    };
+    let ipc = nix::sched::unshare(nix::sched::CloneFlags::CLONE_NEWIPC);
+    for cap in C::all().iter().filter(|&c| c != C::NET_BIND_SERVICE) {
+        // EINVAL past the kernel's last capability; EPERM without CAP_SETPCAP, when shelld had
+        // only the ambient capability and so nothing else to drop.
+        let _ = remove_capability_from_bounding_set(cap);
+    }
+    clear_ambient_capability_set().context("ambient capabilities")?;
+    let keep = C::NET_BIND_SERVICE;
+    set_capabilities(None, CapabilitySets { effective: keep, permitted: keep, inheritable: C::empty() })
+        .context("dropping capabilities")?;
+    ipc.context("IPC namespace (needs CAP_SYS_ADMIN)")?;
     Ok(())
 }
 

@@ -4,7 +4,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
-use std::path::Path;
+use std::path::{Component, Path, PathBuf};
 
 use anyhow::{Context, Result, ensure};
 use serde::Deserialize;
@@ -61,31 +61,32 @@ impl DesiredState {
         Self::parse(&text, base).with_context(|| format!("{}", path.display()))
     }
 
-    /// Reads what every package declares. Package paths become absolute (shelld opens them
-    /// from its own working directory); `oci` reads a registry package and returns its
-    /// reference pinned to the digest it read, so the install gets the same artifact.
+    /// Reads what every package declares, each app on its own: one package that cannot be
+    /// read (a registry out of reach) does not stop the others. Package paths become absolute
+    /// (shelld opens them from its own working directory); `oci` reads a registry package and
+    /// returns its reference pinned to the digest it read, so the install gets the same artifact.
     pub fn read_packages(
         &mut self,
         mut oci: impl FnMut(&OciRef) -> Result<(Package, OciRef)>,
-    ) -> Result<BTreeMap<String, Package>> {
+    ) -> BTreeMap<String, Result<Package>> {
         let mut packages = BTreeMap::new();
         for (id, app) in &mut self.apps {
             let pkg = match &app.package {
-                Source::Path(p) => {
-                    let p = std::fs::canonicalize(p).with_context(|| format!("{id}: package {}", p.display()))?;
-                    let pkg = Package::read(&p).with_context(|| format!("{id}: {}", p.display()))?;
-                    app.package = Source::Path(p);
-                    pkg
-                }
-                Source::Oci(r) => {
-                    let (pkg, pinned) = oci(r).with_context(|| format!("{id}: {r}"))?;
+                Source::Path(p) => std::fs::canonicalize(p)
+                    .with_context(|| format!("{id}: package {}", p.display()))
+                    .and_then(|p| {
+                        let pkg = Package::read(&p).with_context(|| format!("{id}: {}", p.display()))?;
+                        app.package = Source::Path(p);
+                        Ok(pkg)
+                    }),
+                Source::Oci(r) => oci(r).with_context(|| format!("{id}: {r}")).map(|(pkg, pinned)| {
                     app.package = Source::Oci(pinned);
                     pkg
-                }
+                }),
             };
             packages.insert(id.clone(), pkg);
         }
-        Ok(packages)
+        packages
     }
 }
 
@@ -107,13 +108,15 @@ impl Package {
             use std::io::Read;
             let mut ar = tar::Archive::new(std::fs::File::open(path)?);
             let mut found = None;
+            // Every entry: unpacking lets a later one replace an earlier, so a second app.toml
+            // would make this one not the manifest that gets installed.
             for entry in ar.entries()? {
                 let mut entry = entry?;
-                if entry.path()?.components().eq(Path::new("app.toml").components()) {
+                if archive_path(&entry.path()?) == Path::new("app.toml") {
+                    ensure!(found.is_none(), "more than one app.toml in the package");
                     let mut text = String::new();
                     entry.read_to_string(&mut text)?;
                     found = Some(text);
-                    break;
                 }
             }
             found.context("no app.toml in the package")?
@@ -122,6 +125,12 @@ impl Package {
         let permissions = m.permissions.iter().map(|p| (p.key(), p.optional)).collect();
         Ok(Package { id: m.app.id, version: m.app.version, permissions })
     }
+}
+
+/// Where an archive entry lands when unpacked: `./app.toml` and `/app.toml` are `app.toml`.
+/// `..` is kept (the unpacker refuses it).
+pub fn archive_path(path: &Path) -> PathBuf {
+    path.components().filter(|c| !matches!(c, Component::CurDir | Component::RootDir | Component::Prefix(_))).collect()
 }
 
 /// An installed app as far as the plan is concerned.
@@ -180,9 +189,12 @@ pub struct Plan {
     pub steps: Vec<Step>,
     /// Installed but absent from the state, left alone without `prune`.
     pub unlisted: Vec<String>,
+    /// In the state, but their package could not be read: left as they are.
+    pub held: Vec<String>,
 }
 
-/// Compares the desired state with what is installed. `packages` holds every desired app's package.
+/// Compares the desired state with what is installed. An app missing from `packages` (its
+/// package could not be read) is held: neither changed nor removed.
 pub fn plan(
     desired: &DesiredState,
     packages: &BTreeMap<String, Package>,
@@ -190,6 +202,13 @@ pub fn plan(
     prune: bool,
 ) -> Result<Plan> {
     let mut plan = Plan::default();
+    // An empty file is more likely a truncated one than an order to remove every app with
+    // its data.
+    ensure!(
+        !prune || !desired.apps.is_empty() || current.is_empty(),
+        "the state lists no apps: refusing to remove all {} installed (uninstall them one by one)",
+        current.len()
+    );
     // Removals first: they free the ports that new apps may take.
     for cur in current.iter().filter(|c| !desired.apps.contains_key(&c.id)) {
         if !prune {
@@ -203,7 +222,10 @@ pub fn plan(
     }
 
     for (id, app) in &desired.apps {
-        let pkg = packages.get(id).with_context(|| format!("{id}: package not read"))?;
+        let Some(pkg) = packages.get(id) else {
+            plan.held.push(id.clone());
+            continue;
+        };
         ensure!(&pkg.id == id, "{id}: {} contains app {}", app.package, pkg.id);
         for key in &app.grant {
             let optional = pkg.permissions.iter().find(|(k, _)| k == key).map(|(_, o)| *o);
@@ -351,6 +373,10 @@ mod tests {
             current("org.example.todo", "1.0.0", false, &[]),
             current("org.example.old", "1.0.0", true, &[]),
         ];
+        // An empty state does not remove everything.
+        let empty = DesiredState::parse("", Path::new("/")).unwrap();
+        assert!(plan(&empty, &packages(), &cur, true).is_err());
+        assert!(plan(&empty, &packages(), &[], true).unwrap().steps.is_empty());
         let kept = plan(&s, &packages(), &cur, false).unwrap();
         assert!(kept.steps.is_empty());
         assert_eq!(kept.unlisted, ["org.example.old"]);
@@ -358,6 +384,48 @@ mod tests {
             names(&plan(&s, &packages(), &cur, true).unwrap()),
             ["stop org.example.old", "uninstall org.example.old (with its data)"]
         );
+    }
+
+    #[test]
+    fn unread_packages_are_held() {
+        let s = DesiredState::parse(STATE, Path::new("/")).unwrap();
+        let mut pkgs = packages();
+        pkgs.remove("org.example.todo");
+        let cur = [current("org.example.todo", "0.9.0", true, &[])];
+        let plan = plan(&s, &pkgs, &cur, true).unwrap();
+        assert_eq!(names(&plan), ["install org.example.ping 0.2.0", "start org.example.ping"]);
+        assert_eq!(plan.held, ["org.example.todo"]);
+    }
+
+    #[test]
+    fn archive_entries() {
+        use std::io::Write;
+        assert_eq!(archive_path(Path::new("./app.toml")), Path::new("app.toml"));
+        assert_eq!(archive_path(Path::new("/ui/./x.js")), Path::new("ui/x.js"));
+        assert_eq!(archive_path(Path::new("../app.toml")), Path::new("../app.toml"));
+        let manifest = |id: &str| {
+            format!("[app]\nid = \"{id}\"\nname = \"T\"\nversion = \"1.0.0\"\nshell_api = \"0.1\"\n[backend]\nworld = \"shell:app/app@0.1.0\"\n")
+        };
+        let pkg = |entries: &[(&str, String)]| {
+            let path = std::env::temp_dir().join(format!("wshell-test-{}-{}.pkg", std::process::id(), entries.len()));
+            let mut ar = tar::Builder::new(std::fs::File::create(&path).unwrap());
+            for (name, text) in entries {
+                let mut h = tar::Header::new_gnu();
+                h.set_size(text.len() as u64);
+                h.set_mode(0o644);
+                // `append_data` refuses `./`; the raw name field takes it as written.
+                h.as_gnu_mut().unwrap().name[..name.len()].copy_from_slice(name.as_bytes());
+                h.set_cksum();
+                ar.append(&h, text.as_bytes()).unwrap();
+            }
+            ar.into_inner().unwrap().flush().unwrap();
+            let read = Package::read(&path);
+            std::fs::remove_file(&path).unwrap();
+            read
+        };
+        assert_eq!(pkg(&[("./app.toml", manifest("org.example.todo"))]).unwrap().id, "org.example.todo");
+        let two = [("app.toml", manifest("org.example.todo")), ("./app.toml", manifest("org.example.bank"))];
+        assert!(pkg(&two).unwrap_err().to_string().contains("more than one"));
     }
 
     #[test]
